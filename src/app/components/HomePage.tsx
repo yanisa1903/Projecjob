@@ -12,9 +12,6 @@ const popularPlaces = [
   { name: 'วัดพระแก้ว', province: 'กรุงเทพมหานคร', type: 'วัด' },
   { name: 'อุทยานแห่งชาติเขาใหญ่', province: 'นครราชสีมา', type: 'อุทยาน' },
   { name: 'ดอยสุเทพ', province: 'เชียงใหม่', type: 'ภูเขา' },
-  { name: 'โรงพยาบาลศิริราช', province: 'กรุงเทพมหานคร', type: 'โรงพยาบาล' },
-  { name: 'โรงเรียนวัดหนองเกตุน้อย', province: 'ชลบุรี', type: 'โรงเรียน' },
-  { name: 'ตลาดนัดจตุจักร', province: 'กรุงเทพมหานคร', type: 'ตลาด' },
   { name: 'เซ็นทรัลเวิลด์', province: 'กรุงเทพมหานคร', type: 'ห้างสรรพสินค้า' },
 ];
 
@@ -310,7 +307,7 @@ export default function HomePage() {
       latitude: 13.7516,
       longitude: 100.4927,
       description: 'วัดสำคัญในพระบรมมหาราชวัง โดดเด่นด้วยสถาปัตยกรรมไทยและพระแก้วมรกต ใจกลางกรุงเทพมหานคร',
-      location: 'พระนคร กรุงเทพมหานคร',
+      location: 'ถนนหน้าพระลาน แขวงพระบรมมหาราชวัง เขตพระนคร กรุงเทพมหานคร 10200',
       images: [
         'https://images.unsplash.com/photo-1563492065599-3520f775eeed?w=400',
         'https://images.unsplash.com/photo-1528181304800-259b08848526?w=400',
@@ -324,7 +321,7 @@ export default function HomePage() {
       latitude: 7.7407,
       longitude: 98.7784,
       description: 'หมู่เกาะยอดนิยมในทะเลอันดามัน จังหวัดกระบี่ มีอ่าวมาหยา น้ำทะเลใส และหาดทรายสวย',
-      location: 'อำเภอเมืองกระบี่ จังหวัดกระบี่',
+      location: 'ตำบลอ่าวนาง อำเภอเมืองกระบี่ จังหวัดกระบี่',
       images: [
         'https://images.unsplash.com/photo-1537956965359-7573183d1f57?w=400',
         'https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=400',
@@ -338,7 +335,7 @@ export default function HomePage() {
       latitude: 18.8048,
       longitude: 98.9216,
       description: 'วัดพระธาตุดอยสุเทพ สถานที่คู่เมืองเชียงใหม่ ตั้งอยู่บนยอดดอยพร้อมวิวเมืองและภูเขา',
-      location: 'อำเภอเมืองเชียงใหม่ จังหวัดเชียงใหม่',
+      location: 'ตำบลสุเทพ อำเภอเมืองเชียงใหม่ จังหวัดเชียงใหม่ 50200',
       images: [
         'https://images.unsplash.com/photo-1589728894104-1cf1f8ae9eee?w=400',
         'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400',
@@ -352,7 +349,7 @@ export default function HomePage() {
       latitude: 12.9236,
       longitude: 100.8825,
       description: 'เมืองชายทะเลยอดนิยมของชลบุรี มีหาดพัทยา จุดชมวิว และกิจกรรมทางน้ำหลากหลาย',
-      location: 'อำเภอบางละมุง จังหวัดชลบุรี',
+      location: 'อำเภอบางละมุง จังหวัดชลบุรี 20150',
       images: [
         'https://images.unsplash.com/photo-1598971639058-fab3c3109a00?w=400',
         'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400',
@@ -366,7 +363,7 @@ export default function HomePage() {
       latitude: 12.5684,
       longitude: 99.9577,
       description: 'เมืองพักผ่อนริมทะเลในประจวบคีรีขันธ์ มีชายหาด ตลาดกลางคืน และสถานที่ท่องเที่ยวสำหรับครอบครัว',
-      location: 'อำเภอหัวหิน จังหวัดประจวบคีรีขันธ์',
+      location: 'อำเภอหัวหิน จังหวัดประจวบคีรีขันธ์ 77110',
       images: [
         'https://images.unsplash.com/photo-1552550049-db097c9480d1?w=400',
         'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400',
@@ -380,7 +377,7 @@ export default function HomePage() {
       latitude: 18.5883,
       longitude: 98.4878,
       description: 'ยอดเขาที่สูงที่สุดในประเทศไทย มีธรรมชาติ น้ำตก และอากาศเย็นตลอดปี',
-      location: 'อำเภอจอมทอง จังหวัดเชียงใหม่',
+      location: 'ตำบลบ้านหลวง อำเภอจอมทอง จังหวัดเชียงใหม่ 50160',
       images: [
         'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400',
         'https://images.unsplash.com/photo-1589728894104-1cf1f8ae9eee?w=400',
@@ -394,7 +391,7 @@ export default function HomePage() {
       latitude: 14.4382,
       longitude: 101.3727,
       description: 'อุทยานแห่งชาติแห่งแรกของประเทศไทย มีป่าดิบ น้ำตก และเส้นทางธรรมชาติที่อุดมสมบูรณ์',
-      location: 'อำเภอปากช่อง จังหวัดนครราชสีมา',
+      location: 'ตำบลหมูสี อำเภอปากช่อง จังหวัดนครราชสีมา 30130',
       images: [
         'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=400',
         'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400',
@@ -408,7 +405,7 @@ export default function HomePage() {
       latitude: 13.7465,
       longitude: 100.4930,
       description: 'วัดเก่าแก่ริมแม่น้ำเจ้าพระยา โดดเด่นด้วยพระพุทธไสยาสน์และศิลาจารึกวัดโพธิ์',
-      location: 'เขตพระนคร กรุงเทพมหานคร',
+      location: '2 ถนนสนามไชย แขวงพระบรมมหาราชวัง เขตพระนคร กรุงเทพมหานคร 10200',
       images: ['https://images.unsplash.com/photo-1528181304800-259b08848526?w=400'],
     },
     {
@@ -418,7 +415,7 @@ export default function HomePage() {
       latitude: 13.7437,
       longitude: 100.4889,
       description: 'พระปรางค์ริมแม่น้ำเจ้าพระยา แลนด์มาร์กสำคัญของกรุงเทพมหานคร',
-      location: 'เขตบางกอกใหญ่ กรุงเทพมหานคร',
+      location: '158 ถนนวังเดิม แขวงวัดอรุณ เขตบางกอกใหญ่ กรุงเทพมหานคร 10600',
       images: ['https://images.unsplash.com/photo-1583499871880-de841d1ace2a?w=400'],
     },
     {
@@ -428,7 +425,7 @@ export default function HomePage() {
       latitude: 9.5120,
       longitude: 100.0136,
       description: 'เกาะท่องเที่ยวยอดนิยมของสุราษฎร์ธานี มีชายหาดสวยและธรรมชาติริมทะเล',
-      location: 'อำเภอเกาะสมุย จังหวัดสุราษฎร์ธานี',
+      location: 'อำเภอเกาะสมุย จังหวัดสุราษฎร์ธานี 84320',
       images: ['https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=400'],
     },
     {
@@ -438,7 +435,7 @@ export default function HomePage() {
       latitude: 7.8804,
       longitude: 98.3923,
       description: 'จังหวัดท่องเที่ยวริมทะเลอันดามัน มีชายหาด จุดชมวิว และเกาะใกล้เคียง',
-      location: 'อำเภอเมืองภูเก็ต จังหวัดภูเก็ต',
+      location: 'อำเภอเมืองภูเก็ต จังหวัดภูเก็ต 83000',
       images: ['https://images.unsplash.com/photo-1589394815804-964eed0db9b2?w=400'],
     },
     {
@@ -448,7 +445,7 @@ export default function HomePage() {
       latitude: 19.8520,
       longitude: 100.4500,
       description: 'ยอดเขาชื่อดังของเชียงราย จุดชมทะเลหมอกและพระอาทิตย์ขึ้นเหนือขอบฟ้า',
-      location: 'อำเภอเทิง จังหวัดเชียงราย',
+      location: 'หมู่ที่ 10 ตำบลปอ อำเภอเวียงแก่น จังหวัดเชียงราย 57310',
       images: ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=400'],
     },
     {
@@ -458,7 +455,7 @@ export default function HomePage() {
       latitude: 16.8857,
       longitude: 101.8200,
       description: 'ภูเขายอดนิยมของจังหวัดเลย มีเส้นทางเดินป่า หน้าผา และทะเลหมอก',
-      location: 'อำเภอภูกระดึง จังหวัดเลย',
+      location: 'ตำบลศรีฐาน อำเภอภูกระดึง จังหวัดเลย 42180',
       images: ['https://images.unsplash.com/photo-1500534623283-312aade485b7?w=400'],
     },
     {
@@ -468,7 +465,7 @@ export default function HomePage() {
       latitude: 14.3750,
       longitude: 99.1447,
       description: 'อุทยานแห่งชาติชื่อดังของกาญจนบุรี มีน้ำตกเอราวัณเจ็ดชั้นและเส้นทางธรรมชาติ',
-      location: 'อำเภอศรีสวัสดิ์ จังหวัดกาญจนบุรี',
+      location: 'ตำบลท่ากระดาน อำเภอศรีสวัสดิ์ จังหวัดกาญจนบุรี 71250',
       images: ['https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=400'],
     },
     ...additionalAttractions,
@@ -518,7 +515,7 @@ export default function HomePage() {
                         ? 'แจ้งเตือน! ระดับอันตราย'
                         : level === 'warning'
                         ? 'แจ้งเตือน! ควรระวัง'
-                        : 'อากาศดี เดินทางได้'}
+                        : 'อากาศดี สามารถเดินทางได้'}
                     </h3>
                     <p className="text-xs text-gray-500">
                       {searchQuery} · {departureDate && formatDate(departureDate)} – {returnDate && formatDate(returnDate)}
@@ -706,7 +703,7 @@ export default function HomePage() {
               }}
               onFocus={() => setShowIslandSuggestions(true)}
               onBlur={() => setTimeout(() => setShowIslandSuggestions(false), 150)}
-              placeholder="ค้นหาสถานที่ในประเทศไทย เช่น ร้านอาหาร โรงพยาบาล หรือห้าง"
+              placeholder="ค้นหาสถานที่ในประเทศไทย "
               className="w-full pl-4 pr-10 py-3 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1F2E7A]"
             />
             <button type="submit" className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -739,7 +736,7 @@ export default function HomePage() {
           {/* Date Pickers */}
           <div className="grid grid-cols-2 gap-3">
             <DatePicker
-              placeholder="วันไปเที่ยว"
+              placeholder="วันเดินทาง"
               selected={departureDate}
               onSelect={setDepartureDate}
               minDate={new Date()}
@@ -832,7 +829,7 @@ export default function HomePage() {
                 {bangkokAir.level === 'danger'
                   ? 'คำแนะนำ: ควรเลื่อนกิจกรรมกลางแจ้ง สวมหน้ากาก N95 หากจำเป็นต้องออกจากอาคาร และดูแลกลุ่มเสี่ยงเป็นพิเศษ'
                   : bangkokAir.level === 'warning'
-                  ? 'คำแนะนำ: เที่ยวได้ แต่ควรลดกิจกรรมกลางแจ้ง สวมหน้ากากเมื่ออยู่กลางแจ้ง และพักในพื้นที่อากาศสะอาด'
+                  ? 'คำแนะนำ: สามารถไปเที่ยวได้ แต่ควรลดกิจกรรมกลางแจ้ง สวมหน้ากากเมื่ออยู่กลางแจ้ง และพักในพื้นที่อากาศสะอาด'
                   : 'คำแนะนำ: สามารถเดินทางและทำกิจกรรมกลางแจ้งได้ตามปกติ'}
               </div>
             </div>
