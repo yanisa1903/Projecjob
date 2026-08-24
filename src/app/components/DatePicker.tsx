@@ -19,7 +19,7 @@ export default function DatePicker({ placeholder, selected, onSelect, minDate }:
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button className="w-full text-left pl-3 pr-8 py-2.5 bg-gray-100 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#1F2E7A] relative">
+        <button className="w-full min-h-11 text-left pl-3 pr-8 py-2.5 bg-gray-100 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#1F2E7A] relative">
           {selected ? format(selected, 'd MMM yyyy', { locale: th }) : placeholder}
           <CalendarIcon className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         </button>

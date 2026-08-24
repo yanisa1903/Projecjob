@@ -12,8 +12,10 @@ type PlaceResult = {
   images?: string[];
   phone?: string;
   website?: string;
+  facebook?: string;
   email?: string;
-  extratags?: { phone?: string; website?: string; email?: string };
+  openingHours?: string;
+  extratags?: { phone?: string; website?: string; facebook?: string; 'contact:facebook'?: string; email?: string; opening_hours?: string };
   address?: {
     city?: string;
     town?: string;
@@ -87,12 +89,28 @@ function getLocation(place: PlaceResult) {
   return address?.province || address?.state || address?.city || address?.town || address?.village || 'ประเทศไทย';
 }
 
+function getDetailedAddress(place: PlaceResult) {
+  const address = place.address;
+  if (!address) return place.display_name;
+  return [
+    address.house_number && `เลขที่ ${address.house_number}`,
+    address.road && (address.road.startsWith('ถนน') ? address.road : `ถนน${address.road}`),
+    address.neighbourhood && `หมู่บ้าน${address.neighbourhood}`,
+    address.village && `หมู่ ${address.village}`,
+    address.suburb && `ตำบล/แขวง ${address.suburb}`,
+    address.city_district && `อำเภอ/เขต ${address.city_district}`,
+    address.county && !address.city_district && `อำเภอ ${address.county}`,
+    address.state && `จังหวัด${address.state}`,
+    address.postcode && `รหัสไปรษณีย์ ${address.postcode}`,
+  ].filter(Boolean).join(' ') || place.display_name;
+}
+
 function getPlaceTitle(place: PlaceResult) {
   return place.display_name.split(',')[0].trim() || 'สถานที่ไม่ระบุชื่อ';
 }
 
 function getMapUrl(place: PlaceResult) {
-  return `https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lon}#map=17/${place.lat}/${place.lon}`;
+  return `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lon}`;
 }
 
 async function getPlaceImages(title: string, category: string, latitude: string, longitude: string) {
@@ -110,7 +128,7 @@ async function getPlaceImages(title: string, category: string, latitude: string,
     }
 
     const nearbyResponse = await fetch(
-      `https://commons.wikimedia.org/w/api.php?action=query&generator=geosearch&ggsprimary=all&ggsnamespace=6&ggsradius=1000&ggscoord=${latitude}|${longitude}&ggslimit=6&prop=imageinfo&iiprop=url&iiurlwidth=900&format=json&origin=*`,
+      `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(title)}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url&iiurlwidth=900&format=json&origin=*`,
     );
     if (!nearbyResponse.ok) return wikipediaImage ? [wikipediaImage] : [];
     const data = (await nearbyResponse.json()) as {
@@ -119,7 +137,7 @@ async function getPlaceImages(title: string, category: string, latitude: string,
     const nearbyImages = Object.values(data.query?.pages || {})
       .map((page) => page.imageinfo?.[0]?.thumburl || page.imageinfo?.[0]?.url || '')
       .filter(Boolean);
-    return [...new Set([...nearbyImages, wikipediaImage].filter(Boolean))].slice(0, 3);
+    return [...new Set([wikipediaImage, ...nearbyImages].filter(Boolean))].slice(0, 3);
   } catch {
     return [];
   }
@@ -178,7 +196,9 @@ export default function SearchResults() {
               ...place,
               phone: place.phone || place.extratags?.phone,
               website: place.website || place.extratags?.website,
+              facebook: place.facebook || place.extratags?.facebook || place.extratags?.['contact:facebook'] || (place.website?.includes('facebook.com') ? place.website : undefined),
               email: place.email || place.extratags?.email,
+              openingHours: place.openingHours || place.extratags?.opening_hours,
               image: images[0],
               images,
             };
@@ -203,13 +223,13 @@ export default function SearchResults() {
 
   return (
     <div className="min-h-screen bg-[#F5F6FA]">
-      <div className="mx-auto w-full max-w-[480px] lg:max-w-[1200px] min-h-screen bg-white lg:shadow-xl">
+      <div className="app-shell shadow-xl lg:shadow-none">
         {/* Header */}
-        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10">
+        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10 md:pt-6">
           <div className="flex items-center gap-3 mb-4">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2">
+            <a href="/" className="p-2 -ml-2" aria-label="ย้อนกลับ">
               <ArrowLeft className="w-6 h-6 text-[#1F2E7A]" />
-            </button>
+            </a>
             <h1 className="font-semibold text-[#1F2E7A]">Thailand</h1>
           </div>
 
@@ -229,7 +249,7 @@ export default function SearchResults() {
         </div>
 
         {/* Content */}
-        <div className="px-4 py-4">
+        <div className="app-content">
           {/* Results Header */}
           <div className="mb-4">
             <h2 className="font-semibold text-[#1F2E7A] mb-1">
@@ -261,7 +281,7 @@ export default function SearchResults() {
                   to={`/attraction/place-${place.place_id}`}
                   state={{
                     title: getPlaceTitle(place),
-                    location: place.display_name,
+                    location: getDetailedAddress(place),
                     province: getLocation(place),
                     mapUrl: getMapUrl(place),
                     category: place.category,
@@ -271,7 +291,9 @@ export default function SearchResults() {
                     lon: place.lon,
                     phone: place.phone,
                     website: place.website,
+                    facebook: place.facebook,
                     email: place.email,
+                    openingHours: place.openingHours,
                   }}
                   className="block"
                 >

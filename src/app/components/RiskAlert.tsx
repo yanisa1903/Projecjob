@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams, Link } from 'react-router';
 import { ArrowLeft, AlertTriangle, Wind, Activity, MapPin } from 'lucide-react';
+import { fetchPlaceImages } from '../utils/placeImages';
 
 export default function RiskAlert() {
   const navigate = useNavigate();
@@ -92,6 +93,13 @@ export default function RiskAlert() {
     '2': { lat: '10.0991', lon: '99.8381' },
   };
   const coordinates = locationState?.lat && locationState.lon ? locationState : legacyCoordinates[id || ''];
+  const [placeImages, setPlaceImages] = useState<string[]>(locationState?.images?.length ? locationState.images : locationState?.image ? [locationState.image] : []);
+
+  useEffect(() => {
+    if (placeImages.length || !coordinates?.lat || !coordinates.lon) return;
+    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then(setPlaceImages);
+  }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length]);
+
   const [airQuality, setAirQuality] = useState<{ pm25: number; aqi: number } | null>(
     locationState?.pm25 !== undefined && locationState.aqi !== undefined
       ? { pm25: locationState.pm25, aqi: locationState.aqi }
@@ -168,32 +176,36 @@ export default function RiskAlert() {
 
   return (
     <div className="min-h-screen bg-[#F5F6FA]">
-      <div className="mx-auto w-full max-w-[480px] lg:max-w-[1200px] min-h-screen bg-white lg:shadow-xl">
+      <div className="app-shell shadow-xl lg:shadow-none">
         {/* Header */}
-        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10">
+        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10 md:pt-6">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2">
+            <a href="/" className="p-2 -ml-2" aria-label="ย้อนกลับ">
               <ArrowLeft className="w-6 h-6 text-[#1F2E7A]" />
-            </button>
+            </a>
             <h1 className="font-semibold text-[#1F2E7A]">Thailand</h1>
           </div>
         </div>
 
         {/* Content */}
-        <div className="px-4 py-4">
+        <div className="app-content">
           {/* Title */}
           <h2 className="text-2xl font-bold text-[#1F2E7A] mb-4">{attraction.title}</h2>
 
           {/* Image Gallery */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            {attraction.images.map((img, idx) => (
+          <div className="grid grid-cols-3 gap-2 mb-4 lg:gap-3">
+            {placeImages.length > 0 ? placeImages.map((img, idx) => (
               <img
-                key={idx}
+                key={img}
                 src={img}
                 alt={`${attraction.title} ${idx + 1}`}
                 className="w-full aspect-[4/3] object-cover rounded-xl"
               />
-            ))}
+            )) : (
+              <div className="col-span-3 aspect-[4/3] rounded-xl bg-gray-100 flex items-center justify-center text-sm text-gray-400">
+                กำลังโหลดรูปสถานที่
+              </div>
+            )}
           </div>
 
           {/* PM2.5 Danger Warning Card */}
@@ -271,7 +283,7 @@ export default function RiskAlert() {
                     category: alt.type,
                     lat: String(alt.lat),
                     lon: String(alt.lon),
-                    mapUrl: `https://www.openstreetmap.org/?mlat=${alt.lat}&mlon=${alt.lon}#map=17/${alt.lat}/${alt.lon}`,
+                    mapUrl: `https://www.google.com/maps/search/?api=1&query=${alt.lat},${alt.lon}`,
                     image: alt.image,
                   }}
                   className="block bg-white rounded-xl p-3 hover:shadow-lg transition-shadow"

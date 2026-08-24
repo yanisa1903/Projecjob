@@ -18,6 +18,43 @@ const popularPlaces = [
   { name: 'เซ็นทรัลเวิลด์', province: 'กรุงเทพมหานคร', type: 'ห้างสรรพสินค้า' },
 ];
 
+const tourismCategories = ['ทั้งหมด', 'อุทยาน', 'ทะเล', 'ภูเขา', 'วัด'] as const;
+type TourismCategory = typeof tourismCategories[number];
+const fallbackDestinationImages = [
+  'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=400',
+  'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400',
+  'https://images.unsplash.com/photo-1500534623283-312aade485b7?w=400',
+];
+
+const additionalAttractions = [
+  { id: 17, title: 'วัดร่องขุ่น', category: 'วัด' as const, latitude: 19.8242, longitude: 99.7636, location: 'อำเภอเมืองเชียงราย จังหวัดเชียงราย', description: 'วัดสีขาวอันโดดเด่นของเชียงราย สร้างสรรค์ด้วยศิลปะร่วมสมัย' },
+  { id: 18, title: 'วัดพระธาตุลำปางหลวง', category: 'วัด' as const, latitude: 18.2150, longitude: 99.3925, location: 'อำเภอเกาะคา จังหวัดลำปาง', description: 'วัดสำคัญคู่เมืองลำปาง มีสถาปัตยกรรมล้านนาอันงดงาม' },
+  { id: 19, title: 'อุทยานประวัติศาสตร์สุโขทัย', category: 'วัด' as const, latitude: 17.0168, longitude: 99.7036, location: 'อำเภอเมืองสุโขทัย จังหวัดสุโขทัย', description: 'เมืองโบราณและโบราณสถานสำคัญของอาณาจักรสุโขทัย' },
+  { id: 20, title: 'วัดไชยวัฒนาราม', category: 'วัด' as const, latitude: 14.3450, longitude: 100.5433, location: 'อำเภอพระนครศรีอยุธยา จังหวัดพระนครศรีอยุธยา', description: 'โบราณสถานริมแม่น้ำเจ้าพระยาในอุทยานประวัติศาสตร์อยุธยา' },
+  { id: 21, title: 'วัดเบญจมบพิตร', category: 'วัด' as const, latitude: 13.7669, longitude: 100.5148, location: 'เขตดุสิต กรุงเทพมหานคร', description: 'วัดหินอ่อนชื่อดังที่มีสถาปัตยกรรมไทยอันประณีต' },
+  { id: 22, title: 'วัดร่องเสือเต้น', category: 'วัด' as const, latitude: 19.9219, longitude: 99.8406, location: 'อำเภอเมืองเชียงราย จังหวัดเชียงราย', description: 'วัดสีน้ำเงินร่วมสมัยที่มีลวดลายพุทธศิลป์โดดเด่น' },
+  { id: 23, title: 'วัดพระธาตุหริภุญชัย', category: 'วัด' as const, latitude: 18.5761, longitude: 99.0088, location: 'อำเภอเมืองลำพูน จังหวัดลำพูน', description: 'วัดพระธาตุสำคัญใจกลางเมืองลำพูนและศูนย์รวมศรัทธาล้านนา' },
+  { id: 24, title: 'เกาะช้าง', category: 'ทะเล' as const, latitude: 12.1030, longitude: 102.3510, location: 'อำเภอเกาะช้าง จังหวัดตราด', description: 'เกาะขนาดใหญ่ในอ่าวไทย มีป่าฝน น้ำตก และชายหาดสวยงาม' },
+  { id: 25, title: 'เกาะหลีเป๊ะ', category: 'ทะเล' as const, latitude: 6.4880, longitude: 99.3050, location: 'อำเภอละงู จังหวัดสตูล', description: 'เกาะเล็กในทะเลอันดามันที่มีน้ำใสและแนวปะการังสวยงาม' },
+  { id: 26, title: 'เกาะลันตา', category: 'ทะเล' as const, latitude: 7.5336, longitude: 99.0880, location: 'อำเภอเกาะลันตา จังหวัดกระบี่', description: 'เกาะพักผ่อนบรรยากาศสงบ มีชายหาดและชุมชนท้องถิ่นน่าสนใจ' },
+  { id: 27, title: 'หาดไร่เลย์', category: 'ทะเล' as const, latitude: 8.0114, longitude: 98.8370, location: 'อำเภอเมืองกระบี่ จังหวัดกระบี่', description: 'ชายหาดชื่อดังล้อมด้วยหน้าผาหินปูน เดินทางถึงได้ทางเรือ' },
+  { id: 28, title: 'หาดป่าตอง', category: 'ทะเล' as const, latitude: 7.8966, longitude: 98.2965, location: 'อำเภอกะทู้ จังหวัดภูเก็ต', description: 'ชายหาดยอดนิยมของภูเก็ต มีร้านอาหารและกิจกรรมทางน้ำหลากหลาย' },
+  { id: 29, title: 'ดอยอ่างขาง', category: 'ภูเข' as const, latitude: 19.9000, longitude: 99.0500, location: 'อำเภอฝาง จังหวัดเชียงใหม่', description: 'ยอดดอยอากาศเย็น มีแปลงไม้ดอกและทิวทัศน์ภูเขาสวยงาม' },
+  { id: 30, title: 'ดอยแม่สลอง', category: 'ภูเข' as const, latitude: 20.1667, longitude: 99.6333, location: 'อำเภอแม่ฟ้าหลวง จังหวัดเชียงราย', description: 'ภูเขาและชุมชนชาวเขาชื่อดัง มีไร่ชาและทะเลหมอก' },
+  { id: 31, title: 'เขาค้อ', category: 'ภูเข' as const, latitude: 16.9960, longitude: 100.9940, location: 'อำเภอเขาค้อ จังหวัดเพชรบูรณ์', description: 'แหล่งชมทะเลหมอกยอดนิยมของเพชรบูรณ์ อากาศเย็นตลอดปี' },
+  { id: 32, title: 'ภูทับเบิก', category: 'ภูเข' as const, latitude: 16.9000, longitude: 101.1000, location: 'อำเภอหล่มเก่า จังหวัดเพชรบูรณ์', description: 'ยอดเขาสูงที่มีไร่กะหล่ำปลี ทะเลหมอก และอากาศหนาว' },
+  { id: 33, title: 'เขาหลวงสุโขทัย', category: 'ภูเข' as const, latitude: 16.8500, longitude: 99.6500, location: 'อำเภอคีรีมาศ จังหวัดสุโขทัย', description: 'เส้นทางเดินป่าขึ้นยอดเขาที่มีจุดชมวิวธรรมชาติของสุโขทัย' },
+  { id: 42, title: 'ดอยเสมอดาว', category: 'ภูเข' as const, latitude: 18.3833, longitude: 100.8333, location: 'อำเภอนาน้อย จังหวัดน่าน', description: 'จุดชมทะเลหมอกและดาวบนสันเขาในบรรยากาศธรรมชาติของจังหวัดน่าน' },
+  { id: 34, title: 'อุทยานแห่งชาติแก่งกระจาน', category: 'อุทยาน' as const, latitude: 12.8000, longitude: 99.4500, location: 'อำเภอแก่งกระจาน จังหวัดเพชรบุรี', description: 'อุทยานแห่งชาติขนาดใหญ่ มีป่า ทะเลหมอก และเขื่อนแก่งกระจาน' },
+  { id: 35, title: 'อุทยานแห่งชาติหมู่เกาะสิมิลัน', category: 'อุทยาน' as const, latitude: 8.6500, longitude: 97.6500, location: 'อำเภอคุระบุรี จังหวัดพังงา', description: 'หมู่เกาะทะเลอันดามันที่มีน้ำใสและแหล่งดำน้ำระดับโลก' },
+  { id: 36, title: 'อุทยานแห่งชาติเขาสก', category: 'อุทยาน' as const, latitude: 8.9360, longitude: 98.5300, location: 'อำเภอบ้านตาขุน จังหวัดสุราษฎร์ธานี', description: 'ป่าฝนเก่าแก่และภูเขาหินปูนรอบทะเลสาบเชี่ยวหลาน' },
+  { id: 37, title: 'อุทยานแห่งชาติดอยอินทนนท์', category: 'อุทยาน' as const, latitude: 18.5883, longitude: 98.4878, location: 'อำเภอจอมทอง จังหวัดเชียงใหม่', description: 'อุทยานบนยอดเขาสูงที่สุดของไทย มีน้ำตกและเส้นทางธรรมชาติ' },
+  { id: 38, title: 'อุทยานแห่งชาติหมู่เกาะอ่างทอง', category: 'อุทยาน' as const, latitude: 9.6200, longitude: 99.6800, location: 'อำเภอเกาะสมุย จังหวัดสุราษฎร์ธานี', description: 'หมู่เกาะหินปูนกลางอ่าวไทย มีทะเลสาบมรกตและจุดชมวิว' },
+  { id: 39, title: 'อุทยานแห่งชาติทับลาน', category: 'อุทยาน' as const, latitude: 14.3500, longitude: 101.9000, location: 'อำเภอนาดี จังหวัดปราจีนบุรี', description: 'ผืนป่าลานธรรมชาติขนาดใหญ่ เหมาะสำหรับชมธรรมชาติและพักผ่อน' },
+  { id: 40, title: 'อุทยานแห่งชาติหมู่เกาะช้าง', category: 'อุทยาน' as const, latitude: 12.1000, longitude: 102.3500, location: 'อำเภอเกาะช้าง จังหวัดตราด', description: 'อุทยานทางทะเลที่รวมเกาะและระบบนิเวศชายฝั่งอ่าวไทย' },
+  { id: 41, title: 'อุทยานแห่งชาติน้ำตกพลิ้ว', category: 'อุทยาน' as const, latitude: 12.9890, longitude: 102.1650, location: 'อำเภอแหลมสิงห์ จังหวัดจันทบุรี', description: 'อุทยานที่มีน้ำตกพลิ้วและธรรมชาติอุดมสมบูรณ์ใกล้เมืองจันทบุรี' },
+].map((attraction) => ({ ...attraction, images: fallbackDestinationImages }));
+
 // Map Thai keywords to a real location in Thailand for current air-quality data.
 const CITY_MAP: [string, string][] = [
   ['กรุงเทพ', 'bangkok'],
@@ -114,7 +151,7 @@ async function fetchDestinationImages(title: string, latitude: number, longitude
       articleImage = article.originalimage?.source || article.thumbnail?.source || '';
     }
     const commonsResponse = await fetch(
-      `https://commons.wikimedia.org/w/api.php?action=query&generator=geosearch&ggsprimary=all&ggsnamespace=6&ggsradius=1000&ggscoord=${latitude}|${longitude}&ggslimit=6&prop=imageinfo&iiprop=url&iiurlwidth=900&format=json&origin=*`,
+      `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(title)}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url&iiurlwidth=900&format=json&origin=*`,
     );
     const commonsData = commonsResponse.ok
       ? await commonsResponse.json() as { query?: { pages?: Record<string, { imageinfo?: Array<{ thumburl?: string; url?: string }> }> } }
@@ -122,7 +159,7 @@ async function fetchDestinationImages(title: string, latitude: number, longitude
     const commonsImages = Object.values(commonsData.query?.pages || {})
       .map((page) => page.imageinfo?.[0]?.thumburl || page.imageinfo?.[0]?.url || '')
       .filter(Boolean);
-    return [...new Set([...commonsImages, articleImage].filter(Boolean))].slice(0, 3);
+    return [...new Set([articleImage, ...commonsImages].filter(Boolean))].slice(0, 3);
   } catch {
     return [];
   }
@@ -140,7 +177,32 @@ export default function HomePage() {
   const [fetchError, setFetchError] = useState('');
   const [bangkokAir, setBangkokAir] = useState<AirData | null>(null);
   const [destinationImages, setDestinationImages] = useState<Record<number, string[]>>({});
+  const [trendingPlaces, setTrendingPlaces] = useState<typeof popularPlaces>(popularPlaces);
+  const [selectedCategory, setSelectedCategory] = useState<TourismCategory>('ทั้งหมด');
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const travelPattern = /เกาะ|วัด|อุทยาน|ดอย|ภูเขา|หาด|พัทยา|เชียงใหม่|ภูเก็ต|กระบี่|หัวหิน|พระราชวัง|ตลาด|สวน|น้ำตก|ทะเล|อ่าว|พิพิธภัณฑ์|island|beach|temple|park|mountain|museum/i;
+    const nonPlacePattern = /^(จังหวัด|รายชื่อ|การเลือกตั้ง|ผลการเลือกตั้ง|สมาชิกสภา|อำเภอ|ตำบล|ประเทศไทย|พรรค|นายกรัฐมนตรี)|ข่าว|เหตุการณ์/i;
+    const latest = new Date();
+    latest.setUTCDate(latest.getUTCDate() - 1);
+    const datePath = `${latest.getUTCFullYear()}/${String(latest.getUTCMonth() + 1).padStart(2, '0')}/${String(latest.getUTCDate()).padStart(2, '0')}`;
+
+    fetch(`https://wikimedia.org/api/rest_v1/metrics/pageviews/top/th.wikipedia/all-access/${datePath}`, { signal: controller.signal })
+      .then((response) => response.json() as Promise<{ items?: Array<{ articles?: Array<{ article?: string }> }> }>)
+      .then((data) => {
+        const livePlaces = (data.items?.[0]?.articles || [])
+          .map((article) => article.article?.replace(/_/g, ' ').replace(/\s*\(.*\)$/, '').trim() || '')
+          .filter((title) => travelPattern.test(title) && !nonPlacePattern.test(title))
+          .slice(0, 8)
+          .map((title) => ({ name: title, province: 'กำลังเป็นที่สนใจ', type: 'สถานที่ท่องเที่ยว' }));
+        if (livePlaces.length > 0) setTrendingPlaces(livePlaces);
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, []);
 
   // Fetch Bangkok AQI for homepage card
   useEffect(() => {
@@ -150,10 +212,10 @@ export default function HomePage() {
   useEffect(() => {
     const loadImages = async () => {
       const loaded = await Promise.all(
-        attractions.map(async (attraction) => [
-          attraction.id,
-          await fetchDestinationImages(attraction.title, attraction.latitude, attraction.longitude),
-        ] as const),
+        attractions.map(async (attraction) => {
+          const images = await fetchDestinationImages(attraction.title, attraction.latitude, attraction.longitude);
+          return [attraction.id, images.length > 0 ? images : attraction.images] as const;
+        }),
       );
       const imageMap = Object.fromEntries(loaded);
       setDestinationImages(imageMap);
@@ -244,6 +306,7 @@ export default function HomePage() {
     {
       id: 3,
       title: 'วัดพระแก้ว',
+      category: 'วัด' as const,
       latitude: 13.7516,
       longitude: 100.4927,
       description: 'วัดสำคัญในพระบรมมหาราชวัง โดดเด่นด้วยสถาปัตยกรรมไทยและพระแก้วมรกต ใจกลางกรุงเทพมหานคร',
@@ -257,6 +320,7 @@ export default function HomePage() {
     {
       id: 4,
       title: 'เกาะพีพี',
+      category: 'ทะเล' as const,
       latitude: 7.7407,
       longitude: 98.7784,
       description: 'หมู่เกาะยอดนิยมในทะเลอันดามัน จังหวัดกระบี่ มีอ่าวมาหยา น้ำทะเลใส และหาดทรายสวย',
@@ -270,6 +334,7 @@ export default function HomePage() {
     {
       id: 6,
       title: 'ดอยสุเทพ',
+      category: 'ภูเขา' as const,
       latitude: 18.8048,
       longitude: 98.9216,
       description: 'วัดพระธาตุดอยสุเทพ สถานที่คู่เมืองเชียงใหม่ ตั้งอยู่บนยอดดอยพร้อมวิวเมืองและภูเขา',
@@ -283,6 +348,7 @@ export default function HomePage() {
     {
       id: 5,
       title: 'พัทยา',
+      category: 'ทะเล' as const,
       latitude: 12.9236,
       longitude: 100.8825,
       description: 'เมืองชายทะเลยอดนิยมของชลบุรี มีหาดพัทยา จุดชมวิว และกิจกรรมทางน้ำหลากหลาย',
@@ -296,6 +362,7 @@ export default function HomePage() {
     {
       id: 7,
       title: 'หัวหิน',
+      category: 'ทะเล' as const,
       latitude: 12.5684,
       longitude: 99.9577,
       description: 'เมืองพักผ่อนริมทะเลในประจวบคีรีขันธ์ มีชายหาด ตลาดกลางคืน และสถานที่ท่องเที่ยวสำหรับครอบครัว',
@@ -309,6 +376,7 @@ export default function HomePage() {
     {
       id: 8,
       title: 'ดอยอินทนนท์',
+      category: 'ภูเขา' as const,
       latitude: 18.5883,
       longitude: 98.4878,
       description: 'ยอดเขาที่สูงที่สุดในประเทศไทย มีธรรมชาติ น้ำตก และอากาศเย็นตลอดปี',
@@ -319,13 +387,102 @@ export default function HomePage() {
         'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=400',
       ],
     },
+    {
+      id: 9,
+      title: 'อุทยานแห่งชาติเขาใหญ่',
+      category: 'อุทยาน' as const,
+      latitude: 14.4382,
+      longitude: 101.3727,
+      description: 'อุทยานแห่งชาติแห่งแรกของประเทศไทย มีป่าดิบ น้ำตก และเส้นทางธรรมชาติที่อุดมสมบูรณ์',
+      location: 'อำเภอปากช่อง จังหวัดนครราชสีมา',
+      images: [
+        'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=400',
+        'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400',
+        'https://images.unsplash.com/photo-1500534623283-312aade485b7?w=400',
+      ],
+    },
+    {
+      id: 10,
+      title: 'วัดโพธิ์',
+      category: 'วัด' as const,
+      latitude: 13.7465,
+      longitude: 100.4930,
+      description: 'วัดเก่าแก่ริมแม่น้ำเจ้าพระยา โดดเด่นด้วยพระพุทธไสยาสน์และศิลาจารึกวัดโพธิ์',
+      location: 'เขตพระนคร กรุงเทพมหานคร',
+      images: ['https://images.unsplash.com/photo-1528181304800-259b08848526?w=400'],
+    },
+    {
+      id: 11,
+      title: 'วัดอรุณราชวราราม',
+      category: 'วัด' as const,
+      latitude: 13.7437,
+      longitude: 100.4889,
+      description: 'พระปรางค์ริมแม่น้ำเจ้าพระยา แลนด์มาร์กสำคัญของกรุงเทพมหานคร',
+      location: 'เขตบางกอกใหญ่ กรุงเทพมหานคร',
+      images: ['https://images.unsplash.com/photo-1583499871880-de841d1ace2a?w=400'],
+    },
+    {
+      id: 12,
+      title: 'เกาะสมุย',
+      category: 'ทะเล' as const,
+      latitude: 9.5120,
+      longitude: 100.0136,
+      description: 'เกาะท่องเที่ยวยอดนิยมของสุราษฎร์ธานี มีชายหาดสวยและธรรมชาติริมทะเล',
+      location: 'อำเภอเกาะสมุย จังหวัดสุราษฎร์ธานี',
+      images: ['https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=400'],
+    },
+    {
+      id: 13,
+      title: 'ภูเก็ต',
+      category: 'ทะเล' as const,
+      latitude: 7.8804,
+      longitude: 98.3923,
+      description: 'จังหวัดท่องเที่ยวริมทะเลอันดามัน มีชายหาด จุดชมวิว และเกาะใกล้เคียง',
+      location: 'อำเภอเมืองภูเก็ต จังหวัดภูเก็ต',
+      images: ['https://images.unsplash.com/photo-1589394815804-964eed0db9b2?w=400'],
+    },
+    {
+      id: 14,
+      title: 'ภูชี้ฟ้า',
+      category: 'ภูเข' as const,
+      latitude: 19.8520,
+      longitude: 100.4500,
+      description: 'ยอดเขาชื่อดังของเชียงราย จุดชมทะเลหมอกและพระอาทิตย์ขึ้นเหนือขอบฟ้า',
+      location: 'อำเภอเทิง จังหวัดเชียงราย',
+      images: ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=400'],
+    },
+    {
+      id: 15,
+      title: 'ภูกระดึง',
+      category: 'ภูเข' as const,
+      latitude: 16.8857,
+      longitude: 101.8200,
+      description: 'ภูเขายอดนิยมของจังหวัดเลย มีเส้นทางเดินป่า หน้าผา และทะเลหมอก',
+      location: 'อำเภอภูกระดึง จังหวัดเลย',
+      images: ['https://images.unsplash.com/photo-1500534623283-312aade485b7?w=400'],
+    },
+    {
+      id: 16,
+      title: 'อุทยานแห่งชาติเอราวัณ',
+      category: 'อุทยาน' as const,
+      latitude: 14.3750,
+      longitude: 99.1447,
+      description: 'อุทยานแห่งชาติชื่อดังของกาญจนบุรี มีน้ำตกเอราวัณเจ็ดชั้นและเส้นทางธรรมชาติ',
+      location: 'อำเภอศรีสวัสดิ์ จังหวัดกาญจนบุรี',
+      images: ['https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=400'],
+    },
+    ...additionalAttractions,
   ];
   const displayedAttractions = attractions
-    .filter((attraction) => (destinationImages[attraction.id]?.length || 0) > 0)
-    .slice(0, 6)
+    .filter((attraction) => selectedCategory === 'ทั้งหมด' || attraction.category === selectedCategory)
     .map((attraction) => ({
       ...attraction,
-      images: destinationImages[attraction.id] || [],
+      images: (() => {
+        const sourceImages = destinationImages[attraction.id]?.length
+          ? destinationImages[attraction.id]
+          : attraction.images;
+        return [sourceImages[0], sourceImages[1] || sourceImages[0], sourceImages[2] || sourceImages[0]].filter(Boolean) as string[];
+      })(),
     }))
     .filter((attraction) => attraction.images.length > 0);
 
@@ -506,7 +663,7 @@ export default function HomePage() {
       )}
 
       {/* Mobile Frame */}
-      <div className="mx-auto w-full max-w-[480px] lg:max-w-[1200px] min-h-screen bg-white shadow-xl">
+      <div className="app-shell shadow-xl lg:shadow-none">
         {/* Header */}
         <div className="bg-white pt-12 pb-4 px-4 shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -557,8 +714,8 @@ export default function HomePage() {
             </button>
             {showIslandSuggestions && (
               <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-                <p className="px-4 py-2 text-xs font-semibold text-gray-500">สถานที่ยอดนิยมในประเทศไทย</p>
-                {popularPlaces
+                <p className="px-4 py-2 text-xs font-semibold text-gray-500">สถานที่กำลังได้รับความสนใจตอนนี้</p>
+                {trendingPlaces
                   .filter((place) => !searchQuery.trim() || `${place.name} ${place.province} ${place.type}`.includes(searchQuery.trim()))
                   .map((place) => (
                     <button
@@ -597,7 +754,7 @@ export default function HomePage() {
         </div>
 
         {/* Content */}
-        <div className="px-4 py-4">
+        <div className="app-content">
           {/* Live Bangkok AQI card */}
           {bangkokAir ? (
             <div
@@ -689,7 +846,26 @@ export default function HomePage() {
           {/* Recommended */}
           <h2 className="font-semibold text-[#1F2E7A] mb-3">สถานที่แนะนำสำหรับการท่องเที่ยว</h2>
 
-          <div className="space-y-4">
+          <div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="หมวดหมู่สถานที่ท่องเที่ยว">
+            {tourismCategories.map((category) => (
+              <button
+                key={category}
+                type="button"
+                role="tab"
+                aria-selected={selectedCategory === category}
+                onClick={() => setSelectedCategory(category)}
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  selectedCategory === category
+                    ? 'bg-[#1F2E7A] text-white'
+                    : 'bg-blue-50 text-[#1F2E7A] hover:bg-blue-100'
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
             {displayedAttractions.map((attraction) => (
               <Link
                 key={attraction.id}
@@ -697,6 +873,7 @@ export default function HomePage() {
                 state={{
                   title: attraction.title,
                   location: attraction.location,
+                  category: attraction.category,
                   images: attraction.images,
                 }}
                 className="block"
@@ -713,13 +890,21 @@ export default function HomePage() {
                     ))}
                   </div>
                   <div className="px-3 pb-3">
-                    <h3 className="font-semibold text-[#1F2E7A] mb-1">{attraction.title}</h3>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <h3 className="font-semibold text-[#1F2E7A]">{attraction.title}</h3>
+                      <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-medium text-[#1F2E7A]">{attraction.category}</span>
+                    </div>
                     <p className="text-xs text-gray-500 mb-1">{attraction.location}</p>
                     <p className="text-xs text-gray-600 leading-relaxed line-clamp-2">{attraction.description}</p>
                   </div>
                 </div>
               </Link>
             ))}
+            {displayedAttractions.length === 0 && (
+              <p className="col-span-full rounded-xl bg-gray-50 p-6 text-center text-sm text-gray-500">
+                ไม่พบสถานที่ในหมวดนี้
+              </p>
+            )}
           </div>
         </div>
       </div>

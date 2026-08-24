@@ -1,6 +1,7 @@
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { ArrowLeft, MapPin, Clock, Phone, Facebook, Cloud, Droplets, Wind, Waves, CloudRain, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { fetchPlaceImages } from '../utils/placeImages';
 
 type NearbyPlace = {
   id: number;
@@ -9,6 +10,57 @@ type NearbyPlace = {
   lat: number;
   lon: number;
 };
+
+function getHolidayInfo(openingHours: string) {
+  if (/\bPH\s+off\b|\bPH\s+closed\b/i.test(openingHours)) {
+    return 'หยุดวันหยุดนักขัตฤกษ์';
+  }
+  if (/\bPH\s+(open|\d)/i.test(openingHours)) {
+    return 'เปิดตามเวลาที่ระบุในวันหยุดนักขัตฤกษ์';
+  }
+  return 'ไม่มีข้อมูลวันหยุดจากแหล่งข้อมูล';
+}
+
+const weekDays = [
+  ['Mo', 'วันจันทร์'], ['Tu', 'วันอังคาร'], ['We', 'วันพุธ'], ['Th', 'วันพฤหัสบดี'],
+  ['Fr', 'วันศุกร์'], ['Sa', 'วันเสาร์'], ['Su', 'วันอาทิตย์'],
+] as const;
+
+function getDailyHours(openingHours: string) {
+  const schedule = new Map<string, string>();
+  const everyDay = openingHours.match(/เปิดทุกวัน\s+(.+)/i);
+  const allDay = /เปิดตลอด\s*24\s*ชั่วโมง/i.test(openingHours);
+  if (everyDay || allDay) {
+    weekDays.forEach(([code]) => schedule.set(code, allDay ? 'เปิดตลอด 24 ชั่วโมง' : everyDay![1]));
+    return schedule;
+  }
+  openingHours.split(';').forEach((part) => {
+    const match = part.trim().match(/^(Mo|Tu|We|Th|Fr|Sa|Su)(?:-(Mo|Tu|We|Th|Fr|Sa|Su))?\s+(.+)$/i);
+    if (!match) return;
+    const start = weekDays.findIndex(([code]) => code.toLowerCase() === match[1].toLowerCase());
+    const end = match[2]
+      ? weekDays.findIndex(([code]) => code.toLowerCase() === match[2].toLowerCase())
+      : start;
+    if (start < 0 || end < 0) return;
+    for (let index = start; index <= end; index += 1) schedule.set(weekDays[index][0], match[3]);
+  });
+  return schedule;
+}
+
+function formatAddress(address?: Record<string, string>) {
+  if (!address) return '';
+  return [
+    address.house_number && `เลขที่ ${address.house_number}`,
+    address.road && (address.road.startsWith('ถนน') ? address.road : `ถนน${address.road}`),
+    address.neighbourhood && `หมู่บ้าน ${address.neighbourhood}`,
+    address.village && `หมู่ ${address.village}`,
+    address.suburb && `${/^(ตำบล|แขวง)\s/.test(address.suburb) ? '' : 'ตำบล/แขวง '}${address.suburb}`,
+    address.city_district && `${/^(อำเภอ|เขต)\s/.test(address.city_district) ? '' : 'อำเภอ/เขต '}${address.city_district}`,
+    address.county && !address.city_district && `อำเภอ ${address.county}`,
+    (address.state || address.city) && `${/^(จังหวัด)\s/.test(address.state || address.city || '') ? '' : 'จังหวัด'}${address.state || address.city}`,
+    address.postcode && `รหัสไปรษณีย์ ${address.postcode}`,
+  ].filter(Boolean).join(' ');
+}
 
 export default function AttractionDetail() {
   const navigate = useNavigate();
@@ -25,7 +77,9 @@ export default function AttractionDetail() {
     lon?: string;
     phone?: string;
     website?: string;
+    facebook?: string;
     email?: string;
+    openingHours?: string;
   } | null;
 
   const attractionData: Record<string, any> = {
@@ -64,6 +118,15 @@ export default function AttractionDetail() {
       ],
       description: 'วัดพระแก้วเป็นวัดที่สวยงามและมีความสำคัญทางประวัติศาสตร์ ตั้งอยู่ในพระบรมมหาราชวัง',
       location: 'พระนคร กรุงเทพมหานคร',
+      address: {
+        house_number: '1',
+        road: 'ถนนหน้าพระลาน',
+        neighbourhood: 'พระบรมมหาราชวัง',
+        suburb: 'พระบรมมหาราชวัง',
+        city_district: 'พระนคร',
+        city: 'กรุงเทพมหานคร',
+        postcode: '10200',
+      },
       hours: 'เปิดทุกวัน 08:30 - 15:30 น.',
       phone: '02-224-3290',
       facebook: 'วัดพระแก้ว',
@@ -145,18 +208,20 @@ export default function AttractionDetail() {
       : /อุทยาน|ภูเขา|ดอย|น้ำตก|ป่า|mountain|park|waterfall|forest/i.test(livePlaceText)
         ? `${locationState?.title} เป็นแหล่งธรรมชาติใน${locationState?.province || 'ประเทศไทย'} เหมาะสำหรับชมวิว สูดอากาศบริสุทธิ์ และใช้เวลากับเส้นทางธรรมชาติ ควรเตรียมรองเท้าที่เหมาะสมและตรวจสอบประกาศก่อนเดินทาง`
         : `${locationState?.title} เป็นสถานที่น่าสนใจใน${locationState?.province || 'ประเทศไทย'} เหมาะสำหรับแวะสำรวจและสัมผัสบรรยากาศจริงของพื้นที่ แนะนำให้ตรวจสอบเวลาเปิดทำการและการเดินทางก่อนออกไป`;
+  const savedAttraction = attractionData[id || '1'] || attractionData['1'];
   const attraction = (id?.startsWith('place-') || Boolean(exactImages.length)) && locationState?.title
     ? {
+        ...(!id?.startsWith('place-') ? savedAttraction : {}),
         title: locationState.title,
-        images: exactImages.length ? exactImages : [locationState.image || ''],
-        description: livePlaceDescription,
-        location: locationState.location || locationState.province || 'ประเทศไทย',
-        hours: 'กรุณาตรวจสอบเวลาทำการกับสถานที่โดยตรง',
-        phone: locationState.phone || '',
-        facebook: locationState.website || locationState.email || '',
+        images: exactImages.length ? exactImages : savedAttraction.images,
+        description: id?.startsWith('place-') ? livePlaceDescription : savedAttraction.description,
+        location: locationState.location || savedAttraction.location || locationState.province || 'ประเทศไทย',
+        hours: locationState.openingHours || savedAttraction.hours || '',
+        phone: locationState.phone || savedAttraction.phone || '',
+        facebook: locationState.facebook || '',
         mapUrl: locationState.mapUrl,
       }
-    : attractionData[id || '1'] || attractionData['1'];
+    : { ...savedAttraction, images: [] };
 
   const [weather, setWeather] = useState<{
     temperatures: number[];
@@ -176,11 +241,48 @@ export default function AttractionDetail() {
   };
   const coordinates = locationState?.lat && locationState.lon ? locationState : legacyCoordinates[id || ''];
   const mapUrl = coordinates?.lat && coordinates.lon
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${Number(coordinates.lon) - 0.02}%2C${Number(coordinates.lat) - 0.015}%2C${Number(coordinates.lon) + 0.02}%2C${Number(coordinates.lat) + 0.015}&layer=mapnik&marker=${coordinates.lat}%2C${coordinates.lon}`
+    ? `https://www.google.com/maps?q=${coordinates.lat},${coordinates.lon}&output=embed`
     : '';
   const fullMapUrl = attraction.mapUrl || (coordinates?.lat && coordinates.lon
-    ? `https://www.openstreetmap.org/?mlat=${coordinates.lat}&mlon=${coordinates.lon}#map=17/${coordinates.lat}/${coordinates.lon}`
+    ? `https://www.google.com/maps/search/?api=1&query=${coordinates.lat},${coordinates.lon}`
     : '');
+  const [verifiedHours, setVerifiedHours] = useState('');
+  const [verifiedLocation, setVerifiedLocation] = useState('');
+  const [placeDetails, setPlaceDetails] = useState<{
+    address?: Record<string, string>;
+    operator?: string;
+    phone?: string;
+    category?: string;
+  }>({});
+  const displayHours = verifiedHours || attraction.hours;
+  const dailyHours = getDailyHours(displayHours);
+  const detailedAddress = { ...savedAttraction.address, ...placeDetails.address };
+  if (savedAttraction.address?.suburb && placeDetails.address?.suburb?.startsWith('เขต')) {
+    detailedAddress.suburb = savedAttraction.address.suburb;
+  }
+
+  useEffect(() => {
+    if (!coordinates?.lat || !coordinates.lon || locationState?.openingHours) return;
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coordinates.lat}&lon=${coordinates.lon}&extratags=1&accept-language=th`)
+      .then((response) => response.json() as Promise<{
+        display_name?: string;
+        address?: Record<string, string>;
+        extratags?: { opening_hours?: string; operator?: string; phone?: string; tourism?: string; amenity?: string };
+      }>)
+      .then((data) => {
+        if (data.extratags?.opening_hours) setVerifiedHours(data.extratags.opening_hours);
+        if (data.display_name) setVerifiedLocation(data.display_name);
+        setPlaceDetails({ address: data.address, operator: data.extratags?.operator, phone: data.extratags?.phone, category: data.extratags?.tourism || data.extratags?.amenity });
+      })
+      .catch(() => undefined);
+  }, [coordinates?.lat, coordinates?.lon, locationState?.openingHours]);
+
+  const [placeImages, setPlaceImages] = useState<string[]>(exactImages);
+
+  useEffect(() => {
+    if (placeImages.length || !coordinates?.lat || !coordinates.lon) return;
+    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then(setPlaceImages);
+  }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length]);
   const [airQuality, setAirQuality] = useState<{ pm25: number; aqi: number } | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const placeText = `${attraction.title} ${attraction.location} ${locationState?.category || ''}`.toLowerCase();
@@ -313,9 +415,9 @@ export default function AttractionDetail() {
         {/* Header */}
         <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2">
+            <a href="/" className="p-2 -ml-2" aria-label="ย้อนกลับ">
               <ArrowLeft className="w-6 h-6 text-[#1F2E7A]" />
-            </button>
+            </a>
             <h1 className="font-semibold text-[#1F2E7A]">Thailand</h1>
           </div>
         </div>
@@ -327,14 +429,18 @@ export default function AttractionDetail() {
 
           {/* Image Gallery */}
           <div className="grid grid-cols-3 gap-2 mb-4">
-            {attraction.images.map((img, idx) => (
+            {placeImages.length > 0 ? placeImages.map((img, idx) => (
               <img
-                key={idx}
+                key={img}
                 src={img}
                 alt={`${attraction.title} ${idx + 1}`}
                 className="w-full aspect-[4/3] object-cover rounded-xl"
               />
-            ))}
+            )) : (
+              <div className="col-span-3 aspect-[4/3] rounded-xl bg-gray-100 flex items-center justify-center text-sm text-gray-400">
+                กำลังโหลดรูปสถานที่
+              </div>
+            )}
           </div>
 
           {/* Description Card */}
@@ -363,23 +469,49 @@ export default function AttractionDetail() {
               <MapPin className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
               <div>
                 <p className="text-xs text-gray-500 mb-1">ที่ตั้ง</p>
-                <p className="text-sm text-gray-800">{attraction.location}</p>
+                <p className="text-sm text-gray-800">{formatAddress(detailedAddress) || verifiedLocation || attraction.location}</p>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <Clock className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-gray-500 mb-1">เวลาทำการ</p>
-                <p className="text-sm text-gray-800">{attraction.hours}</p>
+            {(locationState?.category || placeDetails.category) && (
+              <div className="flex items-start gap-3">
+                <MapPin className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">ประเภทสถานที่</p>
+                  <p className="text-sm text-gray-800">{locationState?.category || placeDetails.category}</p>
+                </div>
               </div>
-            </div>
-            {attraction.phone && <div className="flex items-start gap-3">
-              <Phone className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-              <div><p className="text-xs text-gray-500 mb-1">โทรศัพท์</p><p className="text-sm text-gray-800">{attraction.phone}</p></div>
-            </div>}
-            {attraction.facebook && <div className="flex items-start gap-3">
+            )}
+            {(placeDetails.operator || attraction.phone || placeDetails.phone) && (
+              <div className="flex items-start gap-3">
+                <Phone className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
+                <div>
+                  {placeDetails.operator && <><p className="text-xs text-gray-500 mb-1">ผู้ดูแล</p><p className="text-sm text-gray-800">{placeDetails.operator}</p></>}
+                  {(attraction.phone || placeDetails.phone) && <><p className="text-xs text-gray-500 mb-1 mt-2">โทรศัพท์</p><p className="text-sm text-gray-800">{placeDetails.phone || attraction.phone}</p></>}
+                </div>
+              </div>
+            )}
+            {displayHours && (
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">เวลาทำการ</p>
+                  <p className="text-sm text-gray-800">{displayHours}</p>
+                  <p className="text-xs text-gray-500 mt-1">วันหยุด: {getHolidayInfo(displayHours)}</p>
+                  {dailyHours.size > 0 && (
+                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                      {weekDays.map(([code, label]) => (
+                        <div key={code} className="grid grid-cols-[7rem_1fr] gap-2">
+                          <span>{label}</span><span>{dailyHours.get(code) || 'ไม่ระบุ'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {locationState?.facebook && <div className="flex items-start gap-3">
               <Facebook className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-              <div><p className="text-xs text-gray-500 mb-1">เว็บไซต์หรือการติดต่อ</p><p className="text-sm text-blue-600 break-all">{attraction.facebook}</p></div>
+              <div><p className="text-xs text-gray-500 mb-1">เพจ Facebook</p><a href={locationState.facebook} target="_blank" rel="noreferrer" className="text-sm text-blue-600 break-all">{locationState.facebook}</a></div>
             </div>}
             {mapUrl && (
               <div className="overflow-hidden rounded-xl border border-gray-200">
@@ -414,7 +546,7 @@ export default function AttractionDetail() {
                 {nearbyPlaces.map((place) => (
                   <a
                     key={place.id}
-                    href={`https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lon}#map=17/${place.lat}/${place.lon}`}
+                    href={`https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lon}`}
                     target="_blank"
                     rel="noreferrer"
                     className="block rounded-xl bg-white p-3"

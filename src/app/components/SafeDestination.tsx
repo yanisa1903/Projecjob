@@ -1,5 +1,7 @@
 import { useNavigate, useParams } from 'react-router';
 import { ArrowLeft, Wind, Cloud, Droplets, Waves, CheckCircle, MapPin, TrendingDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { fetchPlaceImages } from '../utils/placeImages';
 
 export default function SafeDestination() {
   const navigate = useNavigate();
@@ -33,48 +35,73 @@ export default function SafeDestination() {
   };
 
   const destination = destinationData[id as keyof typeof destinationData] || destinationData[3];
+  const destinationCoordinates = {
+    3: { lat: '13.7516', lon: '100.4927' },
+    4: { lat: '7.7407', lon: '98.7784' },
+  }[id as '3' | '4'] || { lat: '13.7516', lon: '100.4927' };
+  const [placeImages, setPlaceImages] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetchPlaceImages(destination.title, destinationCoordinates.lat, destinationCoordinates.lon).then(setPlaceImages);
+  }, [destination.title, destinationCoordinates.lat, destinationCoordinates.lon]);
 
   const nearbyAttractions = [
     {
       name: 'พระบรมมหาราชวัง',
       distance: '0.5 กม.',
-      image: 'https://images.unsplash.com/photo-1563492065599-3520f775eeed?w=400',
+      lat: '13.7500',
+      lon: '100.4913',
     },
     {
       name: 'วัดโพธิ์',
       distance: '1.2 กม.',
-      image: 'https://images.unsplash.com/photo-1528181304800-259b08848526?w=400',
+      lat: '13.7465',
+      lon: '100.4930',
     },
   ];
+  const [nearbyImages, setNearbyImages] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    Promise.all(
+      nearbyAttractions.map(async (place) => [
+        place.name,
+        (await fetchPlaceImages(place.name, place.lat, place.lon))[0] || '',
+      ] as const),
+    ).then((images) => setNearbyImages(Object.fromEntries(images)));
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F5F6FA]">
-      <div className="mx-auto w-full max-w-[480px] lg:max-w-[1200px] min-h-screen bg-white lg:shadow-xl">
+      <div className="app-shell shadow-xl lg:shadow-none">
         {/* Header */}
-        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10">
+        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10 md:pt-6">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2">
+            <a href="/" className="p-2 -ml-2" aria-label="ย้อนกลับ">
               <ArrowLeft className="w-6 h-6 text-[#1F2E7A]" />
-            </button>
+            </a>
             <h1 className="font-semibold text-[#1F2E7A]">Thailand</h1>
           </div>
         </div>
 
         {/* Content */}
-        <div className="px-4 py-4">
+        <div className="app-content">
           {/* Title */}
           <h2 className="text-2xl font-bold text-[#1F2E7A] mb-4">{destination.title}</h2>
 
           {/* Image Gallery */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            {destination.images.map((img, idx) => (
+          <div className="grid grid-cols-3 gap-2 mb-4 lg:gap-3">
+            {placeImages.length > 0 ? placeImages.map((img, idx) => (
               <img
-                key={idx}
+                key={img}
                 src={img}
                 alt={`${destination.title} ${idx + 1}`}
                 className="w-full aspect-[4/3] object-cover rounded-xl"
               />
-            ))}
+            )) : (
+              <div className="col-span-3 aspect-[4/3] rounded-xl bg-gray-100 flex items-center justify-center text-sm text-gray-400">
+                กำลังโหลดรูปสถานที่
+              </div>
+            )}
           </div>
 
           {/* PM2.5 Safe Status Card */}
@@ -226,11 +253,17 @@ export default function SafeDestination() {
             <div className="space-y-3">
               {nearbyAttractions.map((place, idx) => (
                 <div key={idx} className="flex gap-3 items-center p-3 bg-gray-50 rounded-lg">
-                  <img
-                    src={place.image}
-                    alt={place.name}
-                    className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
-                  />
+                  {nearbyImages[place.name] ? (
+                    <img
+                      src={nearbyImages[place.name]}
+                      alt={place.name}
+                      className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                      <MapPin className="w-5 h-5 text-gray-400" />
+                    </div>
+                  )}
                   <div className="flex-1">
                     <h4 className="font-semibold text-[#1F2E7A] text-sm">{place.name}</h4>
                     <p className="text-xs text-gray-600">ระยะทาง: {place.distance}</p>
