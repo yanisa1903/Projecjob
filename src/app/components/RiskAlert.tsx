@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams, Link } from 'react-router';
 import { ArrowLeft, AlertTriangle, Wind, Activity, MapPin } from 'lucide-react';
-import { fetchPlaceImages } from '../utils/placeImages';
+import { fetchPlaceImages, uniqueImageUrls } from '../utils/placeImages';
 
 export default function RiskAlert() {
   const navigate = useNavigate();
@@ -93,11 +93,11 @@ export default function RiskAlert() {
     '2': { lat: '10.0991', lon: '99.8381' },
   };
   const coordinates = locationState?.lat && locationState.lon ? locationState : legacyCoordinates[id || ''];
-  const [placeImages, setPlaceImages] = useState<string[]>(locationState?.images?.length ? locationState.images : locationState?.image ? [locationState.image] : []);
+  const [placeImages, setPlaceImages] = useState<string[]>(uniqueImageUrls(locationState?.images?.length ? locationState.images : locationState?.image ? [locationState.image] : []));
 
   useEffect(() => {
     if (placeImages.length || !coordinates?.lat || !coordinates.lon) return;
-    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then(setPlaceImages);
+    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then((images) => setPlaceImages(uniqueImageUrls(images)));
   }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length]);
 
   const [airQuality, setAirQuality] = useState<{ pm25: number; aqi: number } | null>(
@@ -268,7 +268,6 @@ export default function RiskAlert() {
               สถานที่ใกล้เคียงที่แนะนำ
             </h3>
             <p className="text-white/80 text-sm mb-4">
-              สถานที่เหล่านี้อยู่ใกล้กับจุดที่คุณค้นหา
             </p>
 
             <div className="space-y-3">
@@ -323,7 +322,7 @@ export default function RiskAlert() {
               <div>
                 <h4 className="font-semibold text-orange-800 mb-1">คำแนะนำด้านสุขภาพ</h4>
                 <ul className="text-xs text-orange-700 space-y-1">
-                  <li>• สวมหน้ากากอนามัย N95 หากจำเป็นต้องออกไป</li>
+                  <li>• สวมหน้ากากอนามัย หากจำเป็นต้องออกไป</li>
                   <li>• หลีกเลี่ยงกิจกรรมกลางแจ้งที่หนักหน่วง</li>
                   <li>• ปิดหน้าต่างและประตูให้สนิท</li>
                   <li>• ผู้ป่วยโรคหายใจควรพักผ่อนในที่ร่ม</li>

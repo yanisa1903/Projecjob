@@ -2,14 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Search, Menu, User, AlertCircle, AlertTriangle, Wind, Activity, X, Shield, Loader2, RefreshCw } from 'lucide-react';
 import DatePicker from './DatePicker';
+import { fetchTatAttractions, fetchTatPlace, type TatAttraction } from '../utils/tatApi';
 
-const popularPlaces = [
+const fallbackPopularPlaces = [
   { name: 'เกาะพีพี', province: 'กระบี่', type: 'เกาะ' },
   { name: 'เกาะสมุย', province: 'สุราษฎร์ธานี', type: 'เกาะ' },
-  { name: 'เกาะเต่า', province: 'สุราษฎร์ธานี', type: 'เกาะ' },
-  { name: 'เกาะช้าง', province: 'ตราด', type: 'เกาะ' },
   { name: 'เกาะหลีเป๊ะ', province: 'สตูล', type: 'เกาะ' },
-  { name: 'วัดพระแก้ว', province: 'กรุงเทพมหานคร', type: 'วัด' },
+  { name: 'วัดพระศรีรัตนศาสดาราม', province: 'กรุงเทพมหานคร', type: 'วัด' },
   { name: 'อุทยานแห่งชาติเขาใหญ่', province: 'นครราชสีมา', type: 'อุทยาน' },
   { name: 'ดอยสุเทพ', province: 'เชียงใหม่', type: 'ภูเขา' },
   { name: 'เซ็นทรัลเวิลด์', province: 'กรุงเทพมหานคร', type: 'ห้างสรรพสินค้า' },
@@ -56,7 +55,7 @@ const additionalAttractions = [
 const CITY_MAP: [string, string][] = [
   ['กรุงเทพ', 'bangkok'],
   ['ภูเขาทอง', 'bangkok'],
-  ['วัดพระแก้ว', 'bangkok'],
+  ['วัดพระศรีรัตนศาสดาราม', 'bangkok'],
   ['วัด', 'bangkok'],
   ['เชียงใหม่', 'chiang-mai'],
   ['ดอยสุเทพ', 'chiang-mai'],
@@ -174,31 +173,30 @@ export default function HomePage() {
   const [fetchError, setFetchError] = useState('');
   const [bangkokAir, setBangkokAir] = useState<AirData | null>(null);
   const [destinationImages, setDestinationImages] = useState<Record<number, string[]>>({});
-  const [trendingPlaces, setTrendingPlaces] = useState<typeof popularPlaces>(popularPlaces);
+  const [tatPlaces, setTatPlaces] = useState<TatAttraction[]>([]);
+  const [tatTempleImages, setTatTempleImages] = useState<string[]>([]);
+  const [popularPlaces, setPopularPlaces] = useState([...fallbackPopularPlaces]);
   const [selectedCategory, setSelectedCategory] = useState<TourismCategory>('ทั้งหมด');
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const travelPattern = /เกาะ|วัด|อุทยาน|ดอย|ภูเขา|หาด|พัทยา|เชียงใหม่|ภูเก็ต|กระบี่|หัวหิน|พระราชวัง|ตลาด|สวน|น้ำตก|ทะเล|อ่าว|พิพิธภัณฑ์|island|beach|temple|park|mountain|museum/i;
-    const nonPlacePattern = /^(จังหวัด|รายชื่อ|การเลือกตั้ง|ผลการเลือกตั้ง|สมาชิกสภา|อำเภอ|ตำบล|ประเทศไทย|พรรค|นายกรัฐมนตรี)|ข่าว|เหตุการณ์/i;
-    const latest = new Date();
-    latest.setUTCDate(latest.getUTCDate() - 1);
-    const datePath = `${latest.getUTCFullYear()}/${String(latest.getUTCMonth() + 1).padStart(2, '0')}/${String(latest.getUTCDate()).padStart(2, '0')}`;
+    fetchTatPlace('วัดพระศรีรัตนศาสดาราม')
+      .then((place) => setTatTempleImages(place?.images || []))
+      .catch(() => undefined);
+  }, []);
 
-    fetch(`https://wikimedia.org/api/rest_v1/metrics/pageviews/top/th.wikipedia/all-access/${datePath}`, { signal: controller.signal })
-      .then((response) => response.json() as Promise<{ items?: Array<{ articles?: Array<{ article?: string }> }> }>)
-      .then((data) => {
-        const livePlaces = (data.items?.[0]?.articles || [])
-          .map((article) => article.article?.replace(/_/g, ' ').replace(/\s*\(.*\)$/, '').trim() || '')
-          .filter((title) => travelPattern.test(title) && !nonPlacePattern.test(title))
-          .slice(0, 8)
-          .map((title) => ({ name: title, province: 'กำลังเป็นที่สนใจ', type: 'สถานที่ท่องเที่ยว' }));
-        if (livePlaces.length > 0) setTrendingPlaces(livePlaces);
+  useEffect(() => {
+    fetchTatAttractions(50)
+      .then(async (places) => {
+        if (places.length === 0) return;
+        setTatPlaces(places);
+        setPopularPlaces(places.slice(0, 7).map((place) => ({
+          name: place.name,
+          province: place.province,
+          type: place.type,
+        })));
       })
       .catch(() => undefined);
-
-    return () => controller.abort();
   }, []);
 
   // Fetch Bangkok AQI for homepage card
@@ -210,7 +208,9 @@ export default function HomePage() {
     const loadImages = async () => {
       const loaded = await Promise.all(
         attractions.map(async (attraction) => {
-          const images = await fetchDestinationImages(attraction.title, attraction.latitude, attraction.longitude);
+          const images = attraction.id === 3
+            ? tatTempleImages
+            : await fetchDestinationImages(attraction.title, attraction.latitude, attraction.longitude);
           return [attraction.id, images.length > 0 ? images : attraction.images] as const;
         }),
       );
@@ -221,7 +221,7 @@ export default function HomePage() {
       });
     };
     loadImages();
-  }, []);
+  }, [tatTempleImages]);
 
   // Trigger modal + fetch when query + both dates are set
   useEffect(() => {
@@ -302,17 +302,13 @@ export default function HomePage() {
   const attractions = [
     {
       id: 3,
-      title: 'วัดพระแก้ว',
+      title: 'วัดพระศรีรัตนศาสดาราม',
       category: 'วัด' as const,
       latitude: 13.7516,
       longitude: 100.4927,
       description: 'วัดสำคัญในพระบรมมหาราชวัง โดดเด่นด้วยสถาปัตยกรรมไทยและพระแก้วมรกต ใจกลางกรุงเทพมหานคร',
       location: 'ถนนหน้าพระลาน แขวงพระบรมมหาราชวัง เขตพระนคร กรุงเทพมหานคร 10200',
-      images: [
-        'https://images.unsplash.com/photo-1563492065599-3520f775eeed?w=400',
-        'https://images.unsplash.com/photo-1528181304800-259b08848526?w=400',
-        'https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=400',
-      ],
+      images: tatTempleImages,
     },
     {
       id: 4,
@@ -470,7 +466,17 @@ export default function HomePage() {
     },
     ...additionalAttractions,
   ];
-  const displayedAttractions = attractions
+  const apiAttractions = tatPlaces.map((place, index) => ({
+    id: 1000 + index,
+    title: place.name,
+    category: (/ทะเล|เกาะ|ชายหาด/i.test(place.type) ? 'ทะเล' : /ภูเขา|ดอย/i.test(place.type) ? 'ภูเข' : /วัด|พระ/i.test(place.type) ? 'วัด' : /อุทยาน|park/i.test(place.type) ? 'อุทยาน' : 'อุทยาน') as typeof attractions[number]['category'],
+    latitude: place.latitude || 13.7563,
+    longitude: place.longitude || 100.5018,
+    description: place.description || `${place.name} สถานที่ท่องเที่ยวใน${place.province}`,
+    location: place.location || place.province,
+    images: place.images,
+  }));
+  const displayedAttractions = (apiAttractions.length > 0 ? apiAttractions : attractions)
     .filter((attraction) => selectedCategory === 'ทั้งหมด' || attraction.category === selectedCategory)
     .map((attraction) => ({
       ...attraction,
@@ -478,7 +484,7 @@ export default function HomePage() {
         const sourceImages = destinationImages[attraction.id]?.length
           ? destinationImages[attraction.id]
           : attraction.images;
-        return [sourceImages[0], sourceImages[1] || sourceImages[0], sourceImages[2] || sourceImages[0]].filter(Boolean) as string[];
+        return [...new Set(sourceImages)].filter(Boolean) as string[];
       })(),
     }))
     .filter((attraction) => attraction.images.length > 0);
@@ -711,8 +717,8 @@ export default function HomePage() {
             </button>
             {showIslandSuggestions && (
               <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-                <p className="px-4 py-2 text-xs font-semibold text-gray-500">สถานที่กำลังได้รับความสนใจตอนนี้</p>
-                {trendingPlaces
+                <p className="px-4 py-2 text-xs font-semibold text-gray-500">สถานที่ท่องเที่ยวยอดนิยมในประเทศไทย 7 อันดับ</p>
+                {popularPlaces
                   .filter((place) => !searchQuery.trim() || `${place.name} ${place.province} ${place.type}`.includes(searchQuery.trim()))
                   .map((place) => (
                     <button

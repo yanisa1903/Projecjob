@@ -1,7 +1,9 @@
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { ArrowLeft, MapPin, Clock, Phone, Facebook, Cloud, Droplets, Wind, Waves, CloudRain, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchPlaceImages } from '../utils/placeImages';
+import { fetchPlaceImages, uniqueImageUrls } from '../utils/placeImages';
+import { fetchTatPlace } from '../utils/tatApi';
+import { fetchWindyWeather } from '../utils/windyApi';
 
 type NearbyPlace = {
   id: number;
@@ -110,13 +112,9 @@ export default function AttractionDetail() {
       facebook: 'เกาะเต่าท่องเที่ยว',
     },
     3: {
-      title: 'วัดพระแก้ว',
-      images: [
-        'https://images.unsplash.com/photo-1563492065599-3520f775eeed?w=400',
-        'https://images.unsplash.com/photo-1528181304800-259b08848526?w=400',
-        'https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=400',
-      ],
-      description: 'วัดพระแก้วเป็นวัดที่สวยงามและมีความสำคัญทางประวัติศาสตร์ ตั้งอยู่ในพระบรมมหาราชวัง',
+      title: 'วัดพระศรีรัตนศาสดาราม',
+      images: [],
+      description: 'วัดพระศรีรัตนศาสดารามเป็นวัดสำคัญในพระบรมมหาราชวัง โดดเด่นด้วยสถาปัตยกรรมไทยและพระแก้วมรกต',
       location: 'พระนคร กรุงเทพมหานคร',
       address: {
         house_number: '1',
@@ -229,6 +227,7 @@ export default function AttractionDetail() {
     wind: number;
     currentRain: number;
   } | null>(null);
+  const [showWeatherDetails, setShowWeatherDetails] = useState(false);
   const legacyCoordinates: Record<string, { lat: string; lon: string }> = {
     '1': { lat: '13.7539', lon: '100.5067' },
     '2': { lat: '10.0991', lon: '99.8381' },
@@ -277,11 +276,17 @@ export default function AttractionDetail() {
       .catch(() => undefined);
   }, [coordinates?.lat, coordinates?.lon, locationState?.openingHours]);
 
-  const [placeImages, setPlaceImages] = useState<string[]>(exactImages);
+  const [placeImages, setPlaceImages] = useState<string[]>(uniqueImageUrls(exactImages));
 
   useEffect(() => {
     if (placeImages.length || !coordinates?.lat || !coordinates.lon) return;
-    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then(setPlaceImages);
+    if (id === '3') {
+      fetchTatPlace('วัดพระศรีรัตนศาสดาราม')
+        .then((place) => setPlaceImages(uniqueImageUrls(place?.images || [])))
+        .catch(() => undefined);
+      return;
+    }
+    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then((images) => setPlaceImages(uniqueImageUrls(images)));
   }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length]);
   const [airQuality, setAirQuality] = useState<{ pm25: number; aqi: number } | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
@@ -305,24 +310,8 @@ export default function AttractionDetail() {
     if (!coordinates?.lat || !coordinates.lon) return;
 
     const controller = new AbortController();
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.lat}&longitude=${coordinates.lon}&current=temperature_2m,wind_speed_10m,precipitation,rain&daily=temperature_2m_max,precipitation_probability_max&forecast_days=3&timezone=auto`,
-      { signal: controller.signal },
-    )
-      .then((response) => response.json())
-      .then((data: {
-        current?: { wind_speed_10m?: number; precipitation?: number; rain?: number };
-        daily?: { temperature_2m_max?: number[]; precipitation_probability_max?: number[] };
-      }) => {
-        if (data.daily?.temperature_2m_max && data.daily.precipitation_probability_max && data.current) {
-          setWeather({
-            temperatures: data.daily.temperature_2m_max,
-            rain: data.daily.precipitation_probability_max,
-            wind: data.current.wind_speed_10m ?? 0,
-            currentRain: data.current.rain ?? data.current.precipitation ?? 0,
-          });
-        }
-      })
+    fetchWindyWeather(coordinates.lat, coordinates.lon)
+      .then(setWeather)
       .catch(() => undefined);
 
     return () => controller.abort();
@@ -560,24 +549,49 @@ export default function AttractionDetail() {
           )}
 
           {/* Weather Forecast */}
-          <div className="bg-gradient-to-br from-blue-400 to-blue-600 rounded-2xl p-4 mb-4 text-white">
+          <button
+            type="button"
+            onClick={() => setShowWeatherDetails((isOpen) => !isOpen)}
+            aria-expanded={showWeatherDetails}
+            className="w-full bg-gradient-to-br from-blue-400 to-blue-600 rounded-2xl p-4 mb-4 text-left text-white"
+          >
             <h3 className="font-semibold mb-3 flex items-center gap-2">
               <Cloud className="w-5 h-5" />
-              พยากรณ์อากาศ
+              <span className="flex-1">พยากรณ์อากาศ</span>
+              <span className="text-xs font-normal opacity-80">{showWeatherDetails ? 'ซ่อนรายละเอียด' : 'แตะเพื่อดูรายละเอียด'}</span>
             </h3>
+            {!weather ? (
+              <div className="mb-3 rounded-lg bg-red-500/30 px-3 py-2 text-xs">ไม่พบข้อมูลสภาพอากาศแบบเรียลไทม์</div>
+            ) : (weather.currentRain > 0 || weather.rain[0] > 0) ? (
+              <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-400/80 px-3 py-2 text-xs font-semibold text-blue-950">
+                <AlertTriangle className="h-4 w-4" /> คาดว่าจะมีฝนตกวันนี้ ควรเตรียมร่มและตรวจสอบสภาพอากาศก่อนเดินทาง
+              </div>
+            ) : null}
             <div className="grid grid-cols-3 gap-3 text-center">
               {forecastLabels.map((label, index) => (
                 <div key={label}>
                   <p className="text-xs opacity-80 mb-1">{label}</p>
-                  <p className="text-2xl font-bold">{weather?.temperatures[index] ?? [28, 30, 29][index]}°</p>
+                  <p className="text-2xl font-bold">{weather?.temperatures[index] ?? '--'}{weather ? '°' : ''}</p>
                   <div className="flex items-center justify-center gap-1 text-xs mt-1">
                     <Droplets className="w-3 h-3" />
-                    <span>{weather?.rain[index] ?? [60, 40, 50][index]}%</span>
+                    <span>{weather?.rain[index] ?? '--'}{weather ? '%' : ''}</span>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+            {showWeatherDetails && (
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/25 pt-3 text-sm">
+                <div>
+                  <p className="text-xs opacity-75">ฝนที่กำลังตก</p>
+                  <p className="font-semibold">{weather ? `${weather.currentRain.toFixed(1)} มม.` : 'กำลังโหลด...'}</p>
+                </div>
+                <div>
+                  <p className="text-xs opacity-75">ความเร็วลม</p>
+                  <p className="font-semibold">{weather ? `${weather.wind} กม./ชม.` : 'กำลังโหลด...'}</p>
+                </div>
+              </div>
+            )}
+          </button>
 
           {isSea && (
             <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 mb-4">

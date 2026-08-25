@@ -1,25 +1,15 @@
 import { useNavigate, useParams } from 'react-router';
-import { ArrowLeft, Wind, Cloud, Droplets, Waves, CheckCircle, MapPin, TrendingDown } from 'lucide-react';
+import { ArrowLeft, Wind, Cloud, Droplets, Waves, CheckCircle, MapPin, TrendingDown, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchPlaceImages } from '../utils/placeImages';
+import { fetchPlaceImages, uniqueImageUrls } from '../utils/placeImages';
+import { fetchTatPlace } from '../utils/tatApi';
+import { fetchWindyWeather, type WindyWeather } from '../utils/windyApi';
 
 export default function SafeDestination() {
   const navigate = useNavigate();
   const { id } = useParams();
 
   const destinationData = {
-    3: {
-      title: 'วัดพระแก้ว',
-      images: [
-        'https://images.unsplash.com/photo-1563492065599-3520f775eeed?w=400',
-        'https://images.unsplash.com/photo-1528181304800-259b08848526?w=400',
-        'https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=400',
-      ],
-      pm25: 32,
-      aqi: 95,
-      status: 'ปลอดภัย',
-      description: 'วัดพระแก้วเป็นวัดที่สวยงามและมีความสำคัญทางประวัติศาสตร์ อากาศดีเหมาะสำหรับการท่องเที่ยว',
-    },
     4: {
       title: 'เกาะพีพี',
       images: [
@@ -40,10 +30,24 @@ export default function SafeDestination() {
     4: { lat: '7.7407', lon: '98.7784' },
   }[id as '3' | '4'] || { lat: '13.7516', lon: '100.4927' };
   const [placeImages, setPlaceImages] = useState<string[]>([]);
+  const [weather, setWeather] = useState<WindyWeather | null>(null);
+  const [showWeatherDetails, setShowWeatherDetails] = useState(false);
 
   useEffect(() => {
-    fetchPlaceImages(destination.title, destinationCoordinates.lat, destinationCoordinates.lon).then(setPlaceImages);
+    if (destination.title === 'วัดพระศรีรัตนศาสดาราม') {
+      fetchTatPlace(destination.title)
+        .then((place) => setPlaceImages(uniqueImageUrls(place?.images || [])))
+        .catch(() => undefined);
+      return;
+    }
+    fetchPlaceImages(destination.title, destinationCoordinates.lat, destinationCoordinates.lon).then((images) => setPlaceImages(uniqueImageUrls(images)));
   }, [destination.title, destinationCoordinates.lat, destinationCoordinates.lon]);
+
+  useEffect(() => {
+    fetchWindyWeather(destinationCoordinates.lat, destinationCoordinates.lon)
+      .then(setWeather)
+      .catch(() => undefined);
+  }, [destinationCoordinates.lat, destinationCoordinates.lon]);
 
   const nearbyAttractions = [
     {
@@ -166,38 +170,63 @@ export default function SafeDestination() {
           </div>
 
           {/* Weather Forecast */}
-          <div className="bg-gradient-to-br from-blue-400 to-blue-600 rounded-2xl p-4 mb-4 text-white">
+          <button
+            type="button"
+            onClick={() => setShowWeatherDetails((isOpen) => !isOpen)}
+            aria-expanded={showWeatherDetails}
+            className="w-full rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-100 p-4 mb-4 text-left text-sky-950 shadow-sm"
+          >
             <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <Cloud className="w-5 h-5" />
-              พยากรณ์อากาศ
+              <Cloud className="w-5 h-5 text-sky-600" />
+              <span className="flex-1">พยากรณ์อากาศ</span>
+              <span className="text-xs font-normal text-sky-700">{showWeatherDetails ? 'ซ่อนรายละเอียด' : 'แตะเพื่อดูรายละเอียด'}</span>
             </h3>
+            {!weather ? (
+              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">ไม่พบข้อมูลสภาพอากาศแบบเรียลไทม์</div>
+            ) : (weather.currentRain > 0 || weather.rain[0] > 0) ? (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600" /> คาดว่าจะมีฝนตกวันนี้ ควรเตรียมร่มและตรวจสอบสภาพอากาศก่อนเดินทาง
+              </div>
+            ) : null}
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
-                <p className="text-xs opacity-80 mb-1">วันนี้</p>
-                <p className="text-2xl font-bold">26°</p>
+                <p className="text-xs text-sky-700 mb-1">วันนี้</p>
+                <p className="text-2xl font-bold">{weather ? `${weather.temperatures[0]}°` : '--'}</p>
                 <div className="flex items-center justify-center gap-1 text-xs mt-1">
                   <Droplets className="w-3 h-3" />
-                  <span>20%</span>
+                  <span>{weather ? `${weather.rain[0]}%` : '--'}</span>
                 </div>
               </div>
               <div>
-                <p className="text-xs opacity-80 mb-1">พรุ่งนี้</p>
-                <p className="text-2xl font-bold">27°</p>
+                <p className="text-xs text-sky-700 mb-1">พรุ่งนี้</p>
+                <p className="text-2xl font-bold">{weather ? `${weather.temperatures[1]}°` : '--'}</p>
                 <div className="flex items-center justify-center gap-1 text-xs mt-1">
                   <Droplets className="w-3 h-3" />
-                  <span>15%</span>
+                  <span>{weather ? `${weather.rain[1]}%` : '--'}</span>
                 </div>
               </div>
               <div>
-                <p className="text-xs opacity-80 mb-1">มะรืน</p>
-                <p className="text-2xl font-bold">26°</p>
+                <p className="text-xs text-sky-700 mb-1">มะรืน</p>
+                <p className="text-2xl font-bold">{weather ? `${weather.temperatures[2]}°` : '--'}</p>
                 <div className="flex items-center justify-center gap-1 text-xs mt-1">
                   <Droplets className="w-3 h-3" />
-                  <span>10%</span>
+                  <span>{weather ? `${weather.rain[2]}%` : '--'}</span>
                 </div>
               </div>
             </div>
-          </div>
+            {showWeatherDetails && (
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-sky-200 pt-3 text-sm">
+                <div>
+                  <p className="text-xs text-sky-700">ฝนที่กำลังตก</p>
+                  <p className="font-semibold">{weather ? `${weather.currentRain.toFixed(1)} มม.` : 'กำลังโหลด...'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-sky-700">ความเร็วลม</p>
+                  <p className="font-semibold">{weather ? `${weather.wind} กม./ชม.` : 'กำลังโหลด...'}</p>
+                </div>
+              </div>
+            )}
+          </button>
 
           {/* Wave Height / Environmental Info */}
           <div className="bg-white rounded-2xl shadow-md p-4 mb-4">

@@ -222,10 +222,10 @@ export default function SearchResults() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA]">
+    <div className="min-h-screen bg-sky-50">
       <div className="app-shell shadow-xl lg:shadow-none">
         {/* Header */}
-        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10 md:pt-6">
+        <div className="sticky top-0 z-10 border-b border-sky-100 bg-gradient-to-br from-white via-sky-50 to-blue-50 px-4 pb-5 pt-12 shadow-sm md:pt-6">
           <div className="flex items-center gap-3 mb-4">
             <a href="/" className="p-2 -ml-2" aria-label="ย้อนกลับ">
               <ArrowLeft className="w-6 h-6 text-[#1F2E7A]" />
@@ -240,7 +240,7 @@ export default function SearchResults() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="ค้นหาสถานที่ใดก็ได้ในประเทศไทย"
-              className="w-full pl-4 pr-10 py-3 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1F2E7A]"
+              className="w-full rounded-xl border border-sky-100 bg-white py-3 pl-4 pr-10 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
             />
             <button type="submit" className="absolute right-3 top-1/2 -translate-y-1/2">
               <Search className="w-5 h-5 text-gray-400" />
@@ -251,11 +251,11 @@ export default function SearchResults() {
         {/* Content */}
         <div className="app-content">
           {/* Results Header */}
-          <div className="mb-4">
-            <h2 className="font-semibold text-[#1F2E7A] mb-1">
+          <div className="mb-5 rounded-2xl border border-sky-100 bg-white/80 p-4 shadow-sm">
+            <h2 className="mb-1 font-semibold text-sky-950">
               ผลการค้นหา "{query}"
             </h2>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-sky-700">
               {isLoading ? 'กำลังค้นหา...' : `พบ ${places.length} สถานที่`}
             </p>
           </div>
@@ -297,22 +297,22 @@ export default function SearchResults() {
                   }}
                   className="block"
                 >
-                  <div className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-                    <div className="h-32 bg-gray-100">
+                  <div className="overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-sm transition-shadow hover:shadow-lg">
+                    <div className="h-32 bg-gradient-to-br from-sky-100 to-blue-100">
                         <img src={place.image} alt={getPlaceTitle(place)} className="h-full w-full object-cover" />
                     </div>
                     <div className="p-4">
                       <div className="flex items-start justify-between gap-3">
-                        <h3 className="font-semibold text-[#1F2E7A] mb-1">{getPlaceTitle(place)}</h3>
+                        <h3 className="mb-1 font-semibold text-sky-950">{getPlaceTitle(place)}</h3>
                         <ExternalLink className="w-4 h-4 text-gray-400 flex-shrink-0" />
                       </div>
                       <div className="flex items-center gap-2 mb-2">
                         <MapPin className="w-3 h-3 text-gray-400" />
-                        <span className="text-xs text-gray-500">{place.display_name}</span>
+                        <span className="text-xs text-slate-500">{place.display_name}</span>
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        <span className="text-xs bg-blue-50 text-[#1F2E7A] px-2 py-0.5 rounded-full">{place.category}</span>
-                        <span className="text-xs bg-blue-50 text-[#1F2E7A] px-2 py-0.5 rounded-full">เปิดแผนที่</span>
+                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-700">{place.category}</span>
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">เปิดแผนที่</span>
                       </div>
                     </div>
                   </div>
@@ -343,7 +343,7 @@ export default function SearchResults() {
                       setSearchInput(tag);
                       navigate(`/search?q=${encodeURIComponent(tag)}`);
                     }}
-                    className="px-4 py-2 bg-[#1F2E7A] text-white rounded-full text-sm hover:bg-[#162056] transition-colors"
+                    className="rounded-full border border-sky-200 bg-white px-4 py-2 text-sm text-sky-800 shadow-sm transition-colors hover:bg-sky-100"
                   >
                     {tag}
                   </button>
