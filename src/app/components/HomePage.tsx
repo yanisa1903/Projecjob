@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Search, Menu, User, AlertCircle, AlertTriangle, Wind, Activity, X, Shield, Loader2, RefreshCw } from 'lucide-react';
 import DatePicker from './DatePicker';
-import { fetchTatAttractions, fetchTatPlace, type TatAttraction } from '../utils/tatApi';
+import { fetchTatAttractions, fetchTatPlace, lockTatImages, type TatAttraction } from '../utils/tatApi';
 
 const fallbackPopularPlaces = [
   { name: 'เกาะพีพี', province: 'กระบี่', type: 'เกาะ' },
@@ -181,7 +181,7 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchTatPlace('วัดพระศรีรัตนศาสดาราม')
-      .then((place) => setTatTempleImages(place?.images || []))
+      .then((place) => setTatTempleImages(lockTatImages('วัดพระศรีรัตนศาสดาราม', place?.images || [])))
       .catch(() => undefined);
   }, []);
 
@@ -211,7 +211,7 @@ export default function HomePage() {
           const images = attraction.id === 3
             ? tatTempleImages
             : await fetchDestinationImages(attraction.title, attraction.latitude, attraction.longitude);
-          return [attraction.id, images.length > 0 ? images : attraction.images] as const;
+          return [attraction.id, attraction.id === 3 ? images : images.length > 0 ? images : attraction.images] as const;
         }),
       );
       const imageMap = Object.fromEntries(loaded);
@@ -221,7 +221,7 @@ export default function HomePage() {
       });
     };
     loadImages();
-  }, [tatTempleImages]);
+  }, []);
 
   // Trigger modal + fetch when query + both dates are set
   useEffect(() => {
@@ -624,10 +624,10 @@ export default function HomePage() {
                   <div className={`rounded-xl px-4 py-3 mb-5 text-center text-white ${c.badge}`}>
                     <p className="font-bold text-sm">
                       {level === 'danger'
-                        ? `⚠️ ไม่แนะนำให้เดินทางไป "${searchQuery}"`
+                        ? `❌ ไม่แนะนำให้เดินทางไป "${searchQuery}"`
                         : level === 'warning'
-                        ? '⚡ ควรระวัง – สวมหน้ากาก N95 เมื่อออกนอก'
-                        : '✅ อากาศดี เหมาะสมสำหรับการท่องเที่ยว'}
+                        ? '⚠️ ควรระวัง – สวมหน้ากาก N95 เมื่อออกนอก'
+                        : '🌤️ อากาศดี เหมาะสมสำหรับการท่องเที่ยว'}
                     </p>
                     <p className="text-xs mt-0.5 opacity-90">
                       สถานะ: <span className="font-semibold">{airData.status}</span>
@@ -717,7 +717,7 @@ export default function HomePage() {
             </button>
             {showIslandSuggestions && (
               <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-                <p className="px-4 py-2 text-xs font-semibold text-gray-500">สถานที่ท่องเที่ยวยอดนิยมในประเทศไทย 7 อันดับ</p>
+                <p className="px-4 py-2 text-xs font-semibold text-gray-500">สถานที่ท่องเที่ยวยอดนิยมในประเทศไทย</p>
                 {popularPlaces
                   .filter((place) => !searchQuery.trim() || `${place.name} ${place.province} ${place.type}`.includes(searchQuery.trim()))
                   .map((place) => (
@@ -833,7 +833,7 @@ export default function HomePage() {
                 }`}
               >
                 {bangkokAir.level === 'danger'
-                  ? 'คำแนะนำ: ควรเลื่อนกิจกรรมกลางแจ้ง สวมหน้ากาก N95 หากจำเป็นต้องออกจากอาคาร และดูแลกลุ่มเสี่ยงเป็นพิเศษ'
+                  ? 'คำแนะนำ: ควรเลื่อนกิจกรรมกลางแจ้ง สวมหน้ากาก หากจำเป็นต้องออกจากอาคาร และดูแลกลุ่มเสี่ยงเป็นพิเศษ'
                   : bangkokAir.level === 'warning'
                   ? 'คำแนะนำ: สามารถไปเที่ยวได้ แต่ควรลดกิจกรรมกลางแจ้ง สวมหน้ากากเมื่ออยู่กลางแจ้ง และพักในพื้นที่อากาศสะอาด'
                   : 'คำแนะนำ: สามารถเดินทางและทำกิจกรรมกลางแจ้งได้ตามปกติ'}
@@ -878,6 +878,8 @@ export default function HomePage() {
                   location: attraction.location,
                   category: attraction.category,
                   images: attraction.images,
+                  lat: String(attraction.latitude),
+                  lon: String(attraction.longitude),
                 }}
                 className="block"
               >

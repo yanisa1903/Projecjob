@@ -1,8 +1,8 @@
 import { useNavigate, useParams } from 'react-router';
 import { ArrowLeft, Wind, Cloud, Droplets, Waves, CheckCircle, MapPin, TrendingDown, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchPlaceImages, uniqueImageUrls } from '../utils/placeImages';
-import { fetchTatPlace } from '../utils/tatApi';
+import { fetchPlaceImages, lockThreeImages } from '../utils/placeImages';
+import { fetchTatPlace, lockTatImages } from '../utils/tatApi';
 import { fetchWindyWeather, type WindyWeather } from '../utils/windyApi';
 
 export default function SafeDestination() {
@@ -10,6 +10,14 @@ export default function SafeDestination() {
   const { id } = useParams();
 
   const destinationData = {
+    3: {
+      title: 'วัดพระศรีรัตนศาสดาราม',
+      images: [],
+      pm25: 32,
+      aqi: 95,
+      status: 'ปลอดภัย',
+      description: 'วัดพระศรีรัตนศาสดารามเป็นวัดสำคัญในพระบรมมหาราชวัง อากาศดีเหมาะสำหรับการท่องเที่ยว',
+    },
     4: {
       title: 'เกาะพีพี',
       images: [
@@ -24,7 +32,7 @@ export default function SafeDestination() {
     },
   };
 
-  const destination = destinationData[id as keyof typeof destinationData] || destinationData[3];
+  const destination = id === '4' ? destinationData[4] : destinationData[3];
   const destinationCoordinates = {
     3: { lat: '13.7516', lon: '100.4927' },
     4: { lat: '7.7407', lon: '98.7784' },
@@ -32,15 +40,26 @@ export default function SafeDestination() {
   const [placeImages, setPlaceImages] = useState<string[]>([]);
   const [weather, setWeather] = useState<WindyWeather | null>(null);
   const [showWeatherDetails, setShowWeatherDetails] = useState(false);
+  const weatherTheme = !weather
+    ? { card: 'from-sky-50 via-blue-50 to-indigo-100 text-sky-950', muted: 'text-sky-700', icon: '⏳' }
+    : weather.condition === 'thunderstorm'
+      ? { card: 'from-indigo-900 via-blue-950 to-slate-900 text-white', muted: 'text-white/75', icon: '⛈️' }
+      : weather.condition === 'rain'
+        ? { card: 'from-slate-600 via-blue-800 to-slate-700 text-white', muted: 'text-white/75', icon: '🌧️' }
+        : weather.isNight
+          ? { card: 'from-slate-800 via-indigo-900 to-slate-900 text-white', muted: 'text-white/75', icon: '🌙' }
+          : weather.condition === 'cloudy'
+            ? { card: 'from-slate-200 via-sky-100 to-blue-200 text-slate-800', muted: 'text-slate-600', icon: '☁️' }
+            : { card: 'from-sky-100 via-blue-50 to-cyan-100 text-sky-950', muted: 'text-sky-700', icon: '☀️' };
 
   useEffect(() => {
     if (destination.title === 'วัดพระศรีรัตนศาสดาราม') {
       fetchTatPlace(destination.title)
-        .then((place) => setPlaceImages(uniqueImageUrls(place?.images || [])))
+        .then((place) => setPlaceImages(lockThreeImages(lockTatImages(destination.title, place?.images || []))))
         .catch(() => undefined);
       return;
     }
-    fetchPlaceImages(destination.title, destinationCoordinates.lat, destinationCoordinates.lon).then((images) => setPlaceImages(uniqueImageUrls(images)));
+    fetchPlaceImages(destination.title, destinationCoordinates.lat, destinationCoordinates.lon).then((images) => setPlaceImages(lockThreeImages(images)));
   }, [destination.title, destinationCoordinates.lat, destinationCoordinates.lon]);
 
   useEffect(() => {
@@ -174,23 +193,34 @@ export default function SafeDestination() {
             type="button"
             onClick={() => setShowWeatherDetails((isOpen) => !isOpen)}
             aria-expanded={showWeatherDetails}
-            className="w-full rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-100 p-4 mb-4 text-left text-sky-950 shadow-sm"
+            className={`relative w-full overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br p-4 mb-4 text-left shadow-sm ${weatherTheme.card}`}
           >
+            <span className="weather-visual" aria-hidden="true">
+              {weather?.condition === 'clear' && !weather.isNight ? <span className="weather-sun-graphic weather-sun" /> : weather?.condition === 'thunderstorm' || weather?.condition === 'rain' ? <><span className="weather-cloud-graphic weather-cloud" /><span className="weather-rain-graphic weather-rain" />{weather.condition === 'thunderstorm' && <span className="weather-lightning-graphic weather-lightning" />}</> : weather?.isNight ? <><span className="weather-moon-graphic" /><span className="weather-stars-graphic weather-stars" /></> : <span className="weather-cloud-graphic weather-cloud" />}
+            </span>
+            {weather?.condition === 'cloudy' && <span className="weather-cloud pointer-events-none absolute right-14 top-14 text-3xl opacity-25" aria-hidden="true">☁︎</span>}
+            <div className="relative z-10">
             <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <Cloud className="w-5 h-5 text-sky-600" />
+              <span className="text-xl" aria-hidden="true">{weatherTheme.icon}</span>
               <span className="flex-1">พยากรณ์อากาศ</span>
-              <span className="text-xs font-normal text-sky-700">{showWeatherDetails ? 'ซ่อนรายละเอียด' : 'แตะเพื่อดูรายละเอียด'}</span>
+              <span className="text-xs font-normal opacity-80">{showWeatherDetails ? 'ซ่อนรายละเอียด' : 'แตะเพื่อดูรายละเอียด'}</span>
             </h3>
             {!weather ? (
               <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">ไม่พบข้อมูลสภาพอากาศแบบเรียลไทม์</div>
+            ) : weather.condition === 'thunderstorm' ? (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-100 px-3 py-2 text-xs font-semibold text-red-800">
+                <AlertTriangle className="h-4 w-4 text-red-600" /> ไม่แนะนำให้เดินทาง คาดว่าจะมีฝนฟ้าคะนอง
+              </div>
             ) : (weather.currentRain > 0 || weather.rain[0] > 0) ? (
               <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
-                <AlertTriangle className="h-4 w-4 text-amber-600" /> คาดว่าจะมีฝนตกวันนี้ ควรเตรียมร่มและตรวจสอบสภาพอากาศก่อนเดินทาง
+                <AlertTriangle className="h-4 w-4 text-amber-600" /> ควรระวัง คาดว่าจะมีฝนตกวันนี้ เตรียมร่มก่อนเดินทาง
               </div>
-            ) : null}
+            ) : (
+              <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">อากาศดี เหมาะสำหรับการเดินทาง</div>
+            )}
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
-                <p className="text-xs text-sky-700 mb-1">วันนี้</p>
+                <p className={`text-xs mb-1 ${weatherTheme.muted}`}>วันนี้</p>
                 <p className="text-2xl font-bold">{weather ? `${weather.temperatures[0]}°` : '--'}</p>
                 <div className="flex items-center justify-center gap-1 text-xs mt-1">
                   <Droplets className="w-3 h-3" />
@@ -198,7 +228,7 @@ export default function SafeDestination() {
                 </div>
               </div>
               <div>
-                <p className="text-xs text-sky-700 mb-1">พรุ่งนี้</p>
+                <p className={`text-xs mb-1 ${weatherTheme.muted}`}>พรุ่งนี้</p>
                 <p className="text-2xl font-bold">{weather ? `${weather.temperatures[1]}°` : '--'}</p>
                 <div className="flex items-center justify-center gap-1 text-xs mt-1">
                   <Droplets className="w-3 h-3" />
@@ -206,7 +236,7 @@ export default function SafeDestination() {
                 </div>
               </div>
               <div>
-                <p className="text-xs text-sky-700 mb-1">มะรืน</p>
+                <p className={`text-xs mb-1 ${weatherTheme.muted}`}>มะรืน</p>
                 <p className="text-2xl font-bold">{weather ? `${weather.temperatures[2]}°` : '--'}</p>
                 <div className="flex items-center justify-center gap-1 text-xs mt-1">
                   <Droplets className="w-3 h-3" />
@@ -226,6 +256,7 @@ export default function SafeDestination() {
                 </div>
               </div>
             )}
+            </div>
           </button>
 
           {/* Wave Height / Environmental Info */}

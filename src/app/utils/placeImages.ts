@@ -21,6 +21,10 @@ export function uniqueImageUrls(images: string[]) {
   });
 }
 
+export function lockThreeImages(images: string[]) {
+  return uniqueImageUrls(images).slice(0, 3);
+}
+
 export async function fetchPlaceImages(title: string, latitude?: string | number, longitude?: string | number) {
   try {
     const wikipediaResponse = await fetch(

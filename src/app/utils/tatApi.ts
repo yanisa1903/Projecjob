@@ -1,4 +1,5 @@
 export type TatAttraction = {
+  id?: string | number;
   name: string;
   province: string;
   type: string;
@@ -8,6 +9,19 @@ export type TatAttraction = {
   longitude?: number;
   images: string[];
 };
+
+export function lockTatImages(title: string, images: string[]) {
+  const storageKey = `tat-images-v1-${title.replace(/[^a-z0-9ก-๙]+/gi, '-').toLowerCase()}`;
+  try {
+    const savedImages = JSON.parse(localStorage.getItem(storageKey) || '[]') as string[];
+    if (savedImages.length >= 3) return savedImages.slice(0, 3);
+    const uniqueImages = [...new Set(images.filter(Boolean))].slice(0, 3);
+    if (uniqueImages.length >= 3) localStorage.setItem(storageKey, JSON.stringify(uniqueImages));
+    return uniqueImages;
+  } catch {
+    return [...new Set(images.filter(Boolean))].slice(0, 3);
+  }
+}
 
 type TatRecord = Record<string, unknown>;
 
@@ -22,6 +36,14 @@ function firstNumber(record: TatRecord, keys: string[]) {
   for (const key of keys) {
     const value = Number(record[key]);
     if (Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function firstIdentifier(record: TatRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' || typeof value === 'number') return value;
   }
   return undefined;
 }
@@ -53,6 +75,7 @@ function toAttraction(record: TatRecord): TatAttraction | null {
   if (!name) return null;
 
   return {
+    id: firstIdentifier(record, ['placeId', 'place_id', 'id']),
     name,
     province: firstString(record, ['province', 'province_name', 'destination', 'region']) || 'ประเทศไทย',
     type: firstString(record, ['category', 'placeType', 'place_type', 'type']) || 'สถานที่ท่องเที่ยว',
@@ -81,9 +104,23 @@ export async function fetchTatAttractions(limit = 50): Promise<TatAttraction[]> 
   if (!response.ok) throw new Error(`TAT API request failed: ${response.status}`);
 
   const data = await response.json() as { result?: TatRecord[]; data?: TatRecord[] };
-  return (data.result || data.data || [])
+  const places = (data.result || data.data || [])
     .map(toAttraction)
     .filter((place): place is TatAttraction => Boolean(place));
+  return Promise.all(places.map(async (place) => {
+    if (place.images.length >= 3 || place.id === undefined) return place;
+    try {
+      const detailResponse = await fetch(`https://tatapi.tourismthailand.org/tatapi/v2/attraction/${place.id}`, {
+        headers: { Accept: 'application/json', 'Accept-Language': 'th', 'x-api-key': apiKey },
+      });
+      if (!detailResponse.ok) return place;
+      const detail = await detailResponse.json() as { result?: TatRecord | TatRecord[]; data?: TatRecord | TatRecord[] };
+      const detailRecord = Array.isArray(detail.result) ? detail.result[0] : detail.result || (Array.isArray(detail.data) ? detail.data[0] : detail.data);
+      return detailRecord ? { ...place, images: imageUrls(detailRecord) } : place;
+    } catch {
+      return place;
+    }
+  }));
 }
 
 export async function fetchTatPlace(title: string): Promise<TatAttraction | null> {

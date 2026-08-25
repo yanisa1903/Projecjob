@@ -1,8 +1,8 @@
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { ArrowLeft, MapPin, Clock, Phone, Facebook, Cloud, Droplets, Wind, Waves, CloudRain, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchPlaceImages, uniqueImageUrls } from '../utils/placeImages';
-import { fetchTatPlace } from '../utils/tatApi';
+import { fetchPlaceImages, lockThreeImages } from '../utils/placeImages';
+import { fetchTatPlace, lockTatImages } from '../utils/tatApi';
 import { fetchWindyWeather } from '../utils/windyApi';
 
 type NearbyPlace = {
@@ -197,7 +197,7 @@ export default function AttractionDetail() {
   };
 
   const savedImages = id ? JSON.parse(localStorage.getItem(`destination-images-${id}`) || '[]') as string[] : [];
-  const exactImages = locationState?.images?.length ? locationState.images : savedImages;
+  const exactImages = id === '3' ? [] : locationState?.images?.length ? locationState.images : savedImages;
   const livePlaceText = `${locationState?.title || ''} ${locationState?.category || ''}`;
   const livePlaceDescription = /ทะเล|เกาะ|หาด|ชายหาด|อ่าว|beach|island/i.test(livePlaceText)
     ? `${locationState?.title} เป็นจุดหมายริมทะเลใน${locationState?.province || 'ประเทศไทย'} เหมาะสำหรับชมวิว พักผ่อน ถ่ายภาพ และสัมผัสบรรยากาศชายฝั่งอย่างใกล้ชิด ควรตรวจสอบสภาพอากาศและรอบเรือก่อนเดินทาง`
@@ -211,7 +211,7 @@ export default function AttractionDetail() {
     ? {
         ...(!id?.startsWith('place-') ? savedAttraction : {}),
         title: locationState.title,
-        images: exactImages.length ? exactImages : savedAttraction.images,
+        images: id === '3' ? exactImages : exactImages.length ? exactImages : savedAttraction.images,
         description: id?.startsWith('place-') ? livePlaceDescription : savedAttraction.description,
         location: locationState.location || savedAttraction.location || locationState.province || 'ประเทศไทย',
         hours: locationState.openingHours || savedAttraction.hours || '',
@@ -226,6 +226,8 @@ export default function AttractionDetail() {
     rain: number[];
     wind: number;
     currentRain: number;
+    condition: 'clear' | 'rain' | 'thunderstorm';
+    isNight: boolean;
   } | null>(null);
   const [showWeatherDetails, setShowWeatherDetails] = useState(false);
   const legacyCoordinates: Record<string, { lat: string; lon: string }> = {
@@ -276,17 +278,17 @@ export default function AttractionDetail() {
       .catch(() => undefined);
   }, [coordinates?.lat, coordinates?.lon, locationState?.openingHours]);
 
-  const [placeImages, setPlaceImages] = useState<string[]>(uniqueImageUrls(exactImages));
+  const [placeImages, setPlaceImages] = useState<string[]>(lockThreeImages(exactImages));
 
   useEffect(() => {
     if (placeImages.length || !coordinates?.lat || !coordinates.lon) return;
     if (id === '3') {
       fetchTatPlace('วัดพระศรีรัตนศาสดาราม')
-        .then((place) => setPlaceImages(uniqueImageUrls(place?.images || [])))
+        .then((place) => setPlaceImages(lockThreeImages(lockTatImages('วัดพระศรีรัตนศาสดาราม', place?.images || []))))
         .catch(() => undefined);
       return;
     }
-    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then((images) => setPlaceImages(uniqueImageUrls(images)));
+    fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then((images) => setPlaceImages(lockThreeImages(images)));
   }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length]);
   const [airQuality, setAirQuality] = useState<{ pm25: number; aqi: number } | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
@@ -380,6 +382,17 @@ export default function AttractionDetail() {
   }, [coordinates?.lat, coordinates?.lon]);
 
   const forecastLabels = ['วันนี้', 'พรุ่งนี้', 'มะรืน'];
+  const weatherTheme = !weather
+    ? { card: 'from-sky-50 via-blue-50 to-indigo-100 text-sky-950', muted: 'text-sky-700', icon: '⏳', label: 'กำลังโหลดข้อมูล' }
+    : weather.condition === 'thunderstorm'
+      ? { card: 'from-indigo-900 via-blue-950 to-slate-900 text-white', muted: 'text-white/75', icon: '⛈️', label: 'ฝนฟ้าคะนอง' }
+      : weather.condition === 'rain'
+        ? { card: 'from-slate-600 via-blue-800 to-slate-700 text-white', muted: 'text-white/75', icon: '🌧️', label: 'ฝนตก' }
+        : weather.isNight
+          ? { card: 'from-slate-800 via-indigo-900 to-slate-900 text-white', muted: 'text-white/75', icon: '🌙', label: 'กลางคืน' }
+          : weather.condition === 'cloudy'
+            ? { card: 'from-slate-200 via-sky-100 to-blue-200 text-slate-800', muted: 'text-slate-600', icon: '☁️', label: 'มีเมฆ' }
+            : { card: 'from-sky-100 via-blue-50 to-cyan-100 text-sky-950', muted: 'text-sky-700', icon: '☀️', label: 'อากาศดี' };
   const airLevel = !airQuality
     ? 'loading'
     : airQuality.pm25 <= 15 && airQuality.aqi <= 50
@@ -553,24 +566,35 @@ export default function AttractionDetail() {
             type="button"
             onClick={() => setShowWeatherDetails((isOpen) => !isOpen)}
             aria-expanded={showWeatherDetails}
-            className="w-full bg-gradient-to-br from-blue-400 to-blue-600 rounded-2xl p-4 mb-4 text-left text-white"
+            className={`relative w-full overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br p-4 mb-4 text-left shadow-sm ${weatherTheme.card}`}
           >
+            <span className="weather-visual" aria-hidden="true">
+              {weather?.condition === 'clear' && !weather.isNight ? <span className="weather-sun-graphic weather-sun" /> : weather?.condition === 'thunderstorm' || weather?.condition === 'rain' ? <><span className="weather-cloud-graphic weather-cloud" /><span className="weather-rain-graphic weather-rain" />{weather.condition === 'thunderstorm' && <span className="weather-lightning-graphic weather-lightning" />}</> : weather?.isNight ? <><span className="weather-moon-graphic" /><span className="weather-stars-graphic weather-stars" /></> : <span className="weather-cloud-graphic weather-cloud" />}
+            </span>
+            {weather?.condition === 'cloudy' && <span className="weather-cloud pointer-events-none absolute right-14 top-14 text-3xl opacity-25" aria-hidden="true">☁︎</span>}
+            <div className="relative z-10">
             <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <Cloud className="w-5 h-5" />
+              <span className="text-xl" aria-hidden="true">{weatherTheme.icon}</span>
               <span className="flex-1">พยากรณ์อากาศ</span>
               <span className="text-xs font-normal opacity-80">{showWeatherDetails ? 'ซ่อนรายละเอียด' : 'แตะเพื่อดูรายละเอียด'}</span>
             </h3>
             {!weather ? (
-              <div className="mb-3 rounded-lg bg-red-500/30 px-3 py-2 text-xs">ไม่พบข้อมูลสภาพอากาศแบบเรียลไทม์</div>
-            ) : (weather.currentRain > 0 || weather.rain[0] > 0) ? (
-              <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-400/80 px-3 py-2 text-xs font-semibold text-blue-950">
-                <AlertTriangle className="h-4 w-4" /> คาดว่าจะมีฝนตกวันนี้ ควรเตรียมร่มและตรวจสอบสภาพอากาศก่อนเดินทาง
+              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">ไม่พบข้อมูลสภาพอากาศแบบเรียลไทม์</div>
+            ) : weather.condition === 'thunderstorm' ? (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-100 px-3 py-2 text-xs font-semibold text-red-800">
+                <AlertTriangle className="h-4 w-4 text-red-600" /> ไม่แนะนำให้เดินทาง คาดว่าจะมีฝนฟ้าคะนอง
               </div>
-            ) : null}
+            ) : (weather.currentRain > 0 || weather.rain[0] > 0) ? (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600" /> ควรระวัง คาดว่าจะมีฝนตกวันนี้ เตรียมร่มก่อนเดินทาง
+              </div>
+            ) : (
+              <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">อากาศดี เหมาะสำหรับการเดินทาง</div>
+            )}
             <div className="grid grid-cols-3 gap-3 text-center">
               {forecastLabels.map((label, index) => (
                 <div key={label}>
-                  <p className="text-xs opacity-80 mb-1">{label}</p>
+                  <p className={`text-xs mb-1 ${weatherTheme.muted}`}>{label}</p>
                   <p className="text-2xl font-bold">{weather?.temperatures[index] ?? '--'}{weather ? '°' : ''}</p>
                   <div className="flex items-center justify-center gap-1 text-xs mt-1">
                     <Droplets className="w-3 h-3" />
@@ -580,17 +604,18 @@ export default function AttractionDetail() {
               ))}
             </div>
             {showWeatherDetails && (
-              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/25 pt-3 text-sm">
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-sky-200 pt-3 text-sm">
                 <div>
-                  <p className="text-xs opacity-75">ฝนที่กำลังตก</p>
+                  <p className="text-xs text-sky-700">ฝนที่กำลังตก</p>
                   <p className="font-semibold">{weather ? `${weather.currentRain.toFixed(1)} มม.` : 'กำลังโหลด...'}</p>
                 </div>
                 <div>
-                  <p className="text-xs opacity-75">ความเร็วลม</p>
+                  <p className="text-xs text-sky-700">ความเร็วลม</p>
                   <p className="font-semibold">{weather ? `${weather.wind} กม./ชม.` : 'กำลังโหลด...'}</p>
                 </div>
               </div>
             )}
+            </div>
           </button>
 
           {isSea && (
