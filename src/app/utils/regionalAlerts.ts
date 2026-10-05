@@ -11,10 +11,13 @@ export type RegionalAlertData = {
   pm25: number | null;
   aqi: number | null;
   currentRain: number | null;
+  rainProbability: number | null;
   temperature: number | null;
+  humidity: number | null;
   windSpeed: number | null;
   windGusts: number | null;
   weatherCode: number | null;
+  weatherDescription: string | null;
   nextThreeHoursRain: number | null;
   nextThreeDaysRain: number | null;
   riverDischarge: number[] | null;
@@ -101,18 +104,20 @@ async function fetchWeather(coordinates: AlertCoordinates) {
     current?: {
       precipitation?: number;
       temperature_2m?: number;
+      relative_humidity_2m?: number;
       wind_speed_10m?: number;
       wind_gusts_10m?: number;
       weather_code?: number;
     };
-    hourly?: { time?: string[]; precipitation?: number[] };
+    hourly?: { time?: string[]; precipitation?: number[]; precipitation_probability?: number[] };
     daily?: { precipitation_sum?: number[] };
   }>(
-    `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&current=precipitation,temperature_2m,wind_speed_10m,wind_gusts_10m,weather_code&hourly=precipitation&daily=precipitation_sum&forecast_days=3&timezone=Asia%2FBangkok`,
+    `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&current=precipitation,temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,weather_code&hourly=precipitation,precipitation_probability&daily=precipitation_sum&forecast_days=3&timezone=Asia%2FBangkok`,
   );
   const currentRain = data.current?.precipitation;
   const hourlyTimes = data.hourly?.time;
   const hourlyRain = data.hourly?.precipitation;
+  const hourlyRainProbability = data.hourly?.precipitation_probability;
   const dailyRainValues = data.daily?.precipitation_sum;
   if (
     typeof currentRain !== 'number'
@@ -123,23 +128,53 @@ async function fetchWeather(coordinates: AlertCoordinates) {
     throw new Error('Weather API returned incomplete data');
   }
   const now = Date.now();
-  const nextThreeHoursRain = hourlyTimes.reduce((maximum, time, index) => {
+  const nextThreeHoursIndexes = hourlyTimes.reduce<number[]>((indexes, time, index) => {
     const timestamp = new Date(`${time}:00+07:00`).getTime();
-    const precipitation = hourlyRain[index];
-    return timestamp >= now && timestamp <= now + 3 * 60 * 60 * 1000
-      ? Math.max(maximum, typeof precipitation === 'number' ? precipitation : 0)
-      : maximum;
-  }, 0);
+    if (timestamp >= now && timestamp <= now + 3 * 60 * 60 * 1000) indexes.push(index);
+    return indexes;
+  }, []);
+  const nextThreeHoursRain = nextThreeHoursIndexes.reduce(
+    (maximum, index) => Math.max(maximum, hourlyRain[index] || 0),
+    0,
+  );
+  const rainProbability = hourlyRainProbability
+    ? nextThreeHoursIndexes.reduce<number | null>((maximum, index) => {
+        const probability = hourlyRainProbability[index];
+        return typeof probability === 'number'
+          ? Math.max(maximum ?? 0, probability)
+          : maximum;
+      }, null)
+    : null;
   const dailyRain = dailyRainValues.filter((value) => Number.isFinite(value));
+  const weatherCode = data.current?.weather_code ?? null;
   return {
     currentRain,
     temperature: data.current?.temperature_2m ?? null,
+    humidity: data.current?.relative_humidity_2m ?? null,
+    rainProbability,
     windSpeed: data.current?.wind_speed_10m ?? null,
     windGusts: data.current?.wind_gusts_10m ?? null,
-    weatherCode: data.current?.weather_code ?? null,
+    weatherCode,
+    weatherDescription: describeWeather(weatherCode),
     nextThreeHoursRain,
     nextThreeDaysRain: Math.max(0, ...dailyRain),
   };
+}
+
+function describeWeather(code: number | null) {
+  if (code === null) return null;
+  if (code === 0) return 'ท้องฟ้าแจ่มใส';
+  if (code === 1) return 'มีเมฆเล็กน้อย';
+  if (code === 2) return 'มีเมฆบางส่วน';
+  if (code === 3) return 'มีเมฆมาก';
+  if (code === 45 || code === 48) return 'มีหมอก';
+  if ([51, 53, 55, 56, 57].includes(code)) return 'มีฝนละออง';
+  if ([61, 63, 66, 80, 81].includes(code)) return 'ฝนตก';
+  if ([65, 67, 82].includes(code)) return 'ฝนตกหนัก';
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return 'หิมะตก';
+  if (code === 95) return 'พายุฝนฟ้าคะนอง';
+  if (code === 96 || code === 99) return 'พายุฝนฟ้าคะนองและลูกเห็บ';
+  return 'ไม่ทราบสภาพอากาศ';
 }
 
 async function fetchAirQuality(coordinates: AlertCoordinates) {
@@ -182,10 +217,13 @@ export async function fetchRegionalAlerts(
 
   return {
     currentRain: weather.status === 'fulfilled' ? weather.value.currentRain : null,
+    rainProbability: weather.status === 'fulfilled' ? weather.value.rainProbability : null,
     temperature: weather.status === 'fulfilled' ? weather.value.temperature : null,
+    humidity: weather.status === 'fulfilled' ? weather.value.humidity : null,
     windSpeed: weather.status === 'fulfilled' ? weather.value.windSpeed : null,
     windGusts: weather.status === 'fulfilled' ? weather.value.windGusts : null,
     weatherCode: weather.status === 'fulfilled' ? weather.value.weatherCode : null,
+    weatherDescription: weather.status === 'fulfilled' ? weather.value.weatherDescription : null,
     nextThreeHoursRain: weather.status === 'fulfilled' ? weather.value.nextThreeHoursRain : null,
     nextThreeDaysRain: weather.status === 'fulfilled' ? weather.value.nextThreeDaysRain : null,
     pm25: airQuality.status === 'fulfilled' ? airQuality.value.pm25 : null,

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router';
-import { ArrowLeft, Wind, Cloud, Droplets, Waves, CheckCircle, MapPin, TrendingDown, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Wind, Cloud, CloudRain, CloudLightning, Moon, Sun, LoaderCircle, Droplets, Waves, CheckCircle, MapPin, TrendingDown, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchPlaceImages, lockThreeImages } from '../utils/placeImages';
 import { fetchTatPlace, lockTatImages } from '../utils/tatApi';
@@ -41,16 +41,17 @@ export default function SafeDestination() {
   const [weather, setWeather] = useState<WindyWeather | null>(null);
   const [showWeatherDetails, setShowWeatherDetails] = useState(false);
   const weatherTheme = !weather
-    ? { card: 'from-sky-50 via-blue-50 to-indigo-100 text-sky-950', muted: 'text-sky-700', icon: '⏳' }
+    ? { card: 'from-sky-50 via-blue-50 to-indigo-100 text-sky-950', muted: 'text-sky-700', icon: LoaderCircle }
     : weather.condition === 'thunderstorm'
-      ? { card: 'from-indigo-900 via-blue-950 to-slate-900 text-white', muted: 'text-white/75', icon: '⛈️' }
+      ? { card: 'from-indigo-900 via-blue-950 to-slate-900 text-white', muted: 'text-white/75', icon: CloudLightning }
       : weather.condition === 'rain'
-        ? { card: 'from-slate-600 via-blue-800 to-slate-700 text-white', muted: 'text-white/75', icon: '🌧️' }
+        ? { card: 'from-slate-600 via-blue-800 to-slate-700 text-white', muted: 'text-white/75', icon: CloudRain }
         : weather.isNight
-          ? { card: 'from-slate-800 via-indigo-900 to-slate-900 text-white', muted: 'text-white/75', icon: '🌙' }
+          ? { card: 'from-slate-800 via-indigo-900 to-slate-900 text-white', muted: 'text-white/75', icon: Moon }
           : weather.condition === 'cloudy'
-            ? { card: 'from-slate-200 via-sky-100 to-blue-200 text-slate-800', muted: 'text-slate-600', icon: '☁️' }
-            : { card: 'from-sky-100 via-blue-50 to-cyan-100 text-sky-950', muted: 'text-sky-700', icon: '☀️' };
+            ? { card: 'from-slate-200 via-sky-100 to-blue-200 text-slate-800', muted: 'text-slate-600', icon: Cloud }
+            : { card: 'from-sky-100 via-blue-50 to-cyan-100 text-sky-950', muted: 'text-sky-700', icon: Sun };
+  const WeatherIcon = weatherTheme.icon;
 
   useEffect(() => {
     if (destination.title === 'วัดพระศรีรัตนศาสดาราม') {
@@ -172,7 +173,7 @@ export default function SafeDestination() {
 
             <div className="bg-white/20 rounded-lg p-3">
               <p className="font-semibold text-center">
-                ✓ แนะนำให้ท่องเที่ยวในพื้นที่นี้
+                <CheckCircle className="mr-2 inline h-4 w-4" />แนะนำให้ท่องเที่ยวในพื้นที่นี้
               </p>
               <p className="text-xs text-center mt-1 opacity-90">
                 คุณภาพอากาศอยู่ในเกณฑ์ที่ดีและปลอดภัย
@@ -198,10 +199,9 @@ export default function SafeDestination() {
             <span className="weather-visual" aria-hidden="true">
               {weather?.condition === 'clear' && !weather.isNight ? <span className="weather-sun-graphic weather-sun" /> : weather?.condition === 'thunderstorm' || weather?.condition === 'rain' ? <><span className="weather-cloud-graphic weather-cloud" /><span className="weather-rain-graphic weather-rain" />{weather.condition === 'thunderstorm' && <span className="weather-lightning-graphic weather-lightning" />}</> : weather?.isNight ? <><span className="weather-moon-graphic" /><span className="weather-stars-graphic weather-stars" /></> : <span className="weather-cloud-graphic weather-cloud" />}
             </span>
-            {weather?.condition === 'cloudy' && <span className="weather-cloud pointer-events-none absolute right-14 top-14 text-3xl opacity-25" aria-hidden="true">☁︎</span>}
             <div className="relative z-10">
             <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <span className="text-xl" aria-hidden="true">{weatherTheme.icon}</span>
+              <WeatherIcon className={`h-5 w-5 ${!weather ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span className="flex-1">พยากรณ์อากาศ</span>
               <span className="text-xs font-normal opacity-80">{showWeatherDetails ? 'ซ่อนรายละเอียด' : 'แตะเพื่อดูรายละเอียด'}</span>
             </h3>

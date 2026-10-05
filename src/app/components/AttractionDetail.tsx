@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, useParams } from 'react-router';
-import { ArrowLeft, MapPin, Clock, Phone, Facebook, Cloud, Droplets, Wind, Waves, CloudRain, AlertTriangle, Star, Sunrise, Banknote, Sparkles, Camera, Ship, Landmark, Leaf, Navigation, Lightbulb, ShieldAlert, Heart, Thermometer, Compass } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, Phone, Cloud, Droplets, Wind, Waves, CloudRain, CloudLightning, Moon, Sun, LoaderCircle, AlertTriangle, Star, Sunrise, Banknote, Sparkles, Camera, Ship, Landmark, Leaf, Navigation, Lightbulb, ShieldAlert, Heart, Thermometer, Compass } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchPlaceImages, lockThreeImages } from '../utils/placeImages';
 import { fetchTatPlace, lockTatImages } from '../utils/tatApi';
@@ -12,42 +12,6 @@ type NearbyPlace = {
   lat: number;
   lon: number;
 };
-
-function getHolidayInfo(openingHours: string) {
-  if (/\bPH\s+off\b|\bPH\s+closed\b/i.test(openingHours)) {
-    return 'หยุดวันหยุดนักขัตฤกษ์';
-  }
-  if (/\bPH\s+(open|\d)/i.test(openingHours)) {
-    return 'เปิดตามเวลาที่ระบุในวันหยุดนักขัตฤกษ์';
-  }
-  return 'ไม่มีข้อมูลวันหยุดจากแหล่งข้อมูล';
-}
-
-const weekDays = [
-  ['Mo', 'วันจันทร์'], ['Tu', 'วันอังคาร'], ['We', 'วันพุธ'], ['Th', 'วันพฤหัสบดี'],
-  ['Fr', 'วันศุกร์'], ['Sa', 'วันเสาร์'], ['Su', 'วันอาทิตย์'],
-] as const;
-
-function getDailyHours(openingHours: string) {
-  const schedule = new Map<string, string>();
-  const everyDay = openingHours.match(/เปิดทุกวัน\s+(.+)/i);
-  const allDay = /เปิดตลอด\s*24\s*ชั่วโมง/i.test(openingHours);
-  if (everyDay || allDay) {
-    weekDays.forEach(([code]) => schedule.set(code, allDay ? 'เปิดตลอด 24 ชั่วโมง' : everyDay![1]));
-    return schedule;
-  }
-  openingHours.split(';').forEach((part) => {
-    const match = part.trim().match(/^(Mo|Tu|We|Th|Fr|Sa|Su)(?:-(Mo|Tu|We|Th|Fr|Sa|Su))?\s+(.+)$/i);
-    if (!match) return;
-    const start = weekDays.findIndex(([code]) => code.toLowerCase() === match[1].toLowerCase());
-    const end = match[2]
-      ? weekDays.findIndex(([code]) => code.toLowerCase() === match[2].toLowerCase())
-      : start;
-    if (start < 0 || end < 0) return;
-    for (let index = start; index <= end; index += 1) schedule.set(weekDays[index][0], match[3]);
-  });
-  return schedule;
-}
 
 function formatAddress(address?: Record<string, string>) {
   if (!address) return '';
@@ -100,6 +64,7 @@ export default function AttractionDetail() {
     description?: string;
     rating?: number;
     entranceFee?: number;
+    recommendedTime?: string;
     reviewCount?: number;
     travelCaution?: string;
     favoriteKey?: string;
@@ -246,12 +211,16 @@ export default function AttractionDetail() {
   const [weather, setWeather] = useState<{
     temperatures: number[];
     rain: number[];
+    currentTemperature: number | null;
     wind: number;
     currentRain: number;
-    condition: 'clear' | 'rain' | 'thunderstorm';
+    humidity: number | null;
+    updatedAt: string;
+    condition: 'clear' | 'cloudy' | 'rain' | 'thunderstorm';
     isNight: boolean;
   } | null>(null);
-  const [showWeatherDetails, setShowWeatherDetails] = useState(false);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [weatherError, setWeatherError] = useState(false);
   const legacyCoordinates: Record<string, { lat: string; lon: string }> = {
     '1': { lat: '13.7539', lon: '100.5067' },
     '2': { lat: '10.0991', lon: '99.8381' },
@@ -278,7 +247,6 @@ export default function AttractionDetail() {
     category?: string;
   }>({});
   const displayHours = verifiedHours || attraction.hours;
-  const dailyHours = getDailyHours(displayHours);
   const detailedAddress = { ...savedAttraction.address, ...placeDetails.address };
   if (savedAttraction.address?.suburb && placeDetails.address?.suburb?.startsWith('เขต')) {
     detailedAddress.suburb = savedAttraction.address.suburb;
@@ -356,8 +324,17 @@ export default function AttractionDetail() {
     .map(([activity]) => activity);
   const estimatedCost = typeof locationState?.entranceFee === 'number'
     ? (locationState.entranceFee === 0 ? 'ไม่มีค่าเข้า' : `${locationState.entranceFee.toLocaleString('th-TH')} บาท`)
-    : 'ไม่มีข้อมูลค่าใช้จ่ายจากแหล่งข้อมูล';
-  const recommendedTime = 'ไม่มีข้อมูลช่วงเวลาที่แนะนำจากแหล่งข้อมูล';
+    : 'ไม่มีราคาในข้อมูลสถานที่ · ค่าใช้จ่ายขึ้นกับกิจกรรม/ผู้ให้บริการ ควรตรวจสอบก่อนเดินทาง';
+  const sourceRecommendedTime = locationState?.recommendedTime?.trim();
+  const recommendedTime = sourceRecommendedTime && !/^(ไม่มีข้อมูล|ไม่มีข้อมูลช่วงเวลาที่แนะนำจากแหล่งข้อมูล)$/i.test(sourceRecommendedTime)
+    ? sourceRecommendedTime
+    : (displayHours && !/เปิดตลอด\s*24\s*ชั่วโมง/i.test(displayHours)
+      ? `เวลาเปิดให้บริการ ${displayHours}`
+      : isSea
+        ? 'ช่วงเช้าหรือเย็น (คำแนะนำทั่วไป) · ตรวจสอบสภาพทะเลและรอบเรือก่อนเดินทาง'
+        : isNature || isWaterRelatedNature
+          ? 'ช่วงเช้า (คำแนะนำทั่วไป) · ตรวจสอบสภาพอากาศและประกาศพื้นที่'
+          : 'ตรวจสอบเวลาเปิดทำการและช่วงเวลาที่เหมาะสมกับสถานที่ก่อนเดินทาง');
   const destinationProvince = getProvince(
     attraction.location || formatAddress(detailedAddress) || verifiedLocation,
     locationState?.province,
@@ -371,13 +348,19 @@ export default function AttractionDetail() {
         : isNature
           ? [Leaf, Sunrise, Camera]
           : [Sparkles, MapPin, Camera];
-  const travelKnow = [
-    displayHours ? `เวลาเปิด-ปิด: ${displayHours}` : '',
-    locationState?.phone || placeDetails.phone ? `โทรสอบถาม: ${placeDetails.phone || locationState?.phone}` : '',
-    locationState?.website ? `เว็บไซต์: ${locationState.website}` : '',
-  ].filter(Boolean);
-  const travelCaution = locationState?.travelCaution || attraction.travelCaution || 'ไม่มีข้อมูลข้อควรระวัง';
-  const [marine, setMarine] = useState<{ wind: number; wave: number } | null>(null);
+  const sourceTravelCaution = locationState?.travelCaution?.trim() || attraction.travelCaution?.trim();
+  const travelCaution = sourceTravelCaution && !/^(ไม่มีข้อมูล|ไม่มีข้อมูลข้อควรระวัง)$/i.test(sourceTravelCaution)
+    ? sourceTravelCaution
+    : (isSea
+      ? 'ตรวจสอบสภาพทะเลและรอบเรือกับผู้ให้บริการก่อนออกเดินทาง สวมเสื้อชูชีพเมื่อโดยสารเรือ และปฏิบัติตามคำแนะนำของเจ้าหน้าที่'
+      : isWaterRelatedNature
+        ? 'ตรวจสอบประกาศปิดพื้นที่และสภาพอากาศก่อนเดินทาง หลีกเลี่ยงลำธารหรือน้ำตกเมื่อฝนตกหนัก และใช้เส้นทางที่กำหนด'
+        : isNature
+          ? 'ตรวจสอบประกาศและเวลาเปิดของพื้นที่ สวมรองเท้าที่เหมาะสม และเตรียมน้ำดื่มให้เพียงพอ'
+          : isTempleOrCulture
+            ? 'แต่งกายสุภาพ ปฏิบัติตามกฎของสถานที่ และตรวจสอบเวลาเปิดทำการก่อนเดินทาง'
+            : 'ตรวจสอบเวลาเปิดทำการและประกาศจากผู้ดูแลสถานที่ก่อนเดินทาง');
+  const [marine, setMarine] = useState<{ wind: number | null; wave: number } | null>(null);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -393,15 +376,30 @@ export default function AttractionDetail() {
   }, [favoriteIds]);
 
   useEffect(() => {
-    if (!coordinates?.lat || !coordinates.lon) return;
+    let isCurrentRequest = true;
+    setWeather(null);
+    setWeatherError(false);
+    setWeatherLoading(true);
 
-    const controller = new AbortController();
+    if (!coordinates?.lat || !coordinates.lon) {
+      setWeatherError(true);
+      setWeatherLoading(false);
+      return () => { isCurrentRequest = false; };
+    }
+
     fetchWindyWeather(coordinates.lat, coordinates.lon)
-      .then(setWeather)
-      .catch(() => undefined);
+      .then((data) => {
+        if (isCurrentRequest) setWeather(data);
+      })
+      .catch(() => {
+        if (isCurrentRequest) setWeatherError(true);
+      })
+      .finally(() => {
+        if (isCurrentRequest) setWeatherLoading(false);
+      });
 
-    return () => controller.abort();
-  }, [coordinates?.lat, coordinates?.lon]);
+    return () => { isCurrentRequest = false; };
+  }, [id, attraction.title, coordinates?.lat, coordinates?.lon]);
 
   useEffect(() => {
     if (!coordinates?.lat || !coordinates.lon) return;
@@ -432,6 +430,7 @@ export default function AttractionDetail() {
     if (!isSea || !coordinates?.lat || !coordinates.lon) return;
 
     const controller = new AbortController();
+    setMarine(null);
     fetch(
       `https://marine-api.open-meteo.com/v1/marine?latitude=${coordinates.lat}&longitude=${coordinates.lon}&current=wave_height,wind_wave_height&hourly=wind_speed_10m&forecast_days=1&timezone=auto`,
       { signal: controller.signal },
@@ -439,7 +438,10 @@ export default function AttractionDetail() {
       .then((response) => response.json())
       .then((data: { current?: { wave_height?: number; wind_wave_height?: number }; hourly?: { wind_speed_10m?: number[] } }) => {
         const wave = data.current?.wave_height ?? data.current?.wind_wave_height;
-        if (typeof wave === 'number') setMarine({ wind: 0, wave: Number(wave.toFixed(1)) });
+        const wind = data.hourly?.wind_speed_10m?.find((value) => Number.isFinite(value));
+        if (typeof wave === 'number') {
+          setMarine({ wind: typeof wind === 'number' ? Math.round(wind) : null, wave: Number(wave.toFixed(1)) });
+        }
       })
       .catch(() => undefined);
 
@@ -467,16 +469,16 @@ export default function AttractionDetail() {
 
   const forecastLabels = ['วันนี้', 'พรุ่งนี้', 'มะรืน'];
   const weatherTheme = !weather
-    ? { card: 'from-sky-50 via-blue-50 to-indigo-100 text-sky-950', muted: 'text-sky-700', icon: '⏳', label: 'กำลังโหลดข้อมูล' }
+    ? { card: 'from-sky-50 via-blue-50 to-indigo-100 text-sky-950', muted: 'text-sky-700', icon: LoaderCircle, label: 'กำลังโหลดข้อมูล' }
     : weather.condition === 'thunderstorm'
-      ? { card: 'from-indigo-900 via-blue-950 to-slate-900 text-white', muted: 'text-white/75', icon: '⛈️', label: 'ฝนฟ้าคะนอง' }
+      ? { card: 'from-indigo-900 via-blue-950 to-slate-900 text-white', muted: 'text-white/75', icon: CloudLightning, label: 'ฝนฟ้าคะนอง' }
       : weather.condition === 'rain'
-        ? { card: 'from-slate-600 via-blue-800 to-slate-700 text-white', muted: 'text-white/75', icon: '🌧️', label: 'ฝนตก' }
+        ? { card: 'from-slate-600 via-blue-800 to-slate-700 text-white', muted: 'text-white/75', icon: CloudRain, label: 'ฝนตก' }
         : weather.isNight
-          ? { card: 'from-slate-800 via-indigo-900 to-slate-900 text-white', muted: 'text-white/75', icon: '🌙', label: 'กลางคืน' }
+          ? { card: 'from-slate-800 via-indigo-900 to-slate-900 text-white', muted: 'text-white/75', icon: Moon, label: 'กลางคืน' }
           : weather.condition === 'cloudy'
-            ? { card: 'from-slate-200 via-sky-100 to-blue-200 text-slate-800', muted: 'text-slate-600', icon: '☁️', label: 'มีเมฆ' }
-            : { card: 'from-sky-100 via-blue-50 to-cyan-100 text-sky-950', muted: 'text-sky-700', icon: '☀️', label: 'อากาศดี' };
+            ? { card: 'from-slate-200 via-sky-100 to-blue-200 text-slate-800', muted: 'text-slate-600', icon: Cloud, label: 'มีเมฆ' }
+            : { card: 'from-sky-100 via-blue-50 to-cyan-100 text-sky-950', muted: 'text-sky-700', icon: Sun, label: 'อากาศดี' };
   const airLevel = !airQuality
     ? 'loading'
     : airQuality.pm25 <= 15 && airQuality.aqi <= 50
@@ -495,14 +497,28 @@ export default function AttractionDetail() {
       ? 'bg-red-500'
       : 'bg-yellow-400';
   const airStatusText = airLevel === 'safe' ? 'อยู่ในระดับดี' : airLevel === 'danger' ? 'อยู่ในระดับอันตราย' : 'อยู่ในระดับปานกลาง';
-  const travelStatus = !weather
-    ? { label: 'กำลังตรวจสอบสภาพอากาศ', style: 'border-slate-200 bg-slate-50 text-slate-700', icon: Cloud }
-    : weather.condition === 'thunderstorm' || airLevel === 'danger'
-      ? { label: 'ไม่แนะนำ', style: 'border-red-200 bg-red-50 text-red-800', icon: AlertTriangle }
-      : weather.condition === 'rain' || weather.currentRain > 0 || weather.rain[0] > 50 || airLevel === 'moderate'
-        ? { label: 'ควรระวัง', style: 'border-amber-200 bg-amber-50 text-amber-800', icon: AlertTriangle }
-        : { label: 'เหมาะเที่ยว', style: 'border-emerald-200 bg-emerald-50 text-emerald-800', icon: Cloud };
-  const TravelStatusIcon = travelStatus.icon;
+  const WeatherIcon = weatherTheme.icon;
+  const weatherNeedsCaution = Boolean(
+    weather && (
+      weather.condition === 'thunderstorm'
+      || airLevel === 'danger'
+      || weather.currentRain >= 10
+      || (weather.rain[0] ?? 0) >= 70
+      || weather.wind >= 40
+      || (isSea && (marine?.wave ?? 0) >= 2)
+    ),
+  );
+  const weatherCautionText = weather?.condition === 'thunderstorm'
+    ? 'คาดการณ์ฝนฟ้าคะนอง โปรดติดตามประกาศในพื้นที่และหลีกเลี่ยงกิจกรรมกลางแจ้ง'
+    : isSea && (marine?.wave ?? 0) >= 2
+      ? 'คลื่นค่อนข้างสูง ควรตรวจสอบประกาศจากผู้ให้บริการเรือและหลีกเลี่ยงกิจกรรมทางทะเลหากไม่ปลอดภัย'
+      : (weather?.wind ?? 0) >= 40
+        ? 'ลมแรง ควรระมัดระวังการเดินทางและกิจกรรมกลางแจ้ง'
+        : (weather?.currentRain ?? 0) >= 10 || (weather?.rain[0] ?? 0) >= 70
+          ? 'มีฝนตกหรือมีโอกาสฝนสูง ควรเตรียมอุปกรณ์กันฝนและตรวจสอบประกาศในพื้นที่'
+          : airLevel === 'danger'
+            ? `คุณภาพอากาศอยู่ในระดับอันตราย (${airQuality?.pm25 ?? '—'} µg/m³) ลดกิจกรรมกลางแจ้งและติดตามคำแนะนำด้านสุขภาพ`
+          : '';
   return (
     <div className="min-h-screen bg-[#F5F6FA]">
       <div className="app-shell shadow-xl lg:shadow-none">
@@ -516,368 +532,342 @@ export default function AttractionDetail() {
           </div>
         </div>
 
-        {/* Content */}
-        <div className="app-content">
-          {/* Title */}
-          <h2 className="text-2xl font-bold text-[#1F2E7A] mb-4">{attraction.title}</h2>
-
-          {/* Image Gallery */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            {placeImages.length > 0 ? placeImages.map((img, idx) => (
-              <img
-                key={img}
-                src={img}
-                alt={`${attraction.title} ${idx + 1}`}
-                className="w-full aspect-[4/3] object-cover rounded-xl"
-              />
-            )) : (
-              <div className="col-span-3 aspect-[4/3] rounded-xl bg-gray-100 flex items-center justify-center text-sm text-gray-400">
-                กำลังโหลดรูปสถานที่
-              </div>
-            )}
-          </div>
-
-          {/* Travel Information Card */}
-          <section className="mb-4 overflow-hidden rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-7">
-            <div className="mb-6">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-[#1F2E7A]">
+        <main className="app-content">
+          <section
+            className="relative mb-6 flex min-h-[300px] items-end overflow-hidden rounded-[22px] bg-slate-300 bg-cover bg-center shadow-sm sm:min-h-[360px] lg:min-h-[390px]"
+            style={placeImages[0] ? { backgroundImage: `linear-gradient(90deg, rgba(10,37,86,.82), rgba(10,37,86,.36) 58%, rgba(10,37,86,.08)), url("${placeImages[0]}")` } : undefined}
+          >
+            {!placeImages[0] && <div className="absolute inset-0 bg-gradient-to-br from-[#1F2E7A] to-sky-600" />}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#08234f]/75 via-transparent to-transparent" />
+            <div className="relative z-[1] flex w-full flex-col gap-6 p-5 text-white sm:p-8 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100/95 px-3 py-1.5 text-xs font-semibold text-[#1F2E7A]">
+                  {isSea ? <Waves className="h-3.5 w-3.5" /> : <Compass className="h-3.5 w-3.5" />}
                   {locationState?.category || placeDetails.category || 'สถานที่ท่องเที่ยว'}
-                </span>
-                <span className="flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/95 px-3 py-1.5 text-xs font-semibold text-emerald-800">
                   <MapPin className="h-3.5 w-3.5" />
                   {destinationProvince}
-                </span>
-              </div>
-              <h2 className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl">{attraction.title}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-base">{attraction.description}</p>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1F2E7A]">
-                <Sparkles className="h-4 w-4 text-amber-500" />
-                จุดเด่น
-              </h3>
-              <ul className="grid gap-3 sm:grid-cols-2">
-                {destinationHighlights.map((highlight, index) => {
-                  const HighlightIcon = highlightIcons[index];
-                  return (
-                    <li key={highlight} className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
-                      <span className="rounded-xl bg-blue-50 p-2 text-[#1F2E7A]">
-                        <HighlightIcon className="h-4 w-4" />
-                      </span>
-                      <span className="pt-1 text-sm leading-relaxed text-slate-700">{highlight}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-
-            <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="rounded-2xl border border-slate-100 p-3">
-                <div className="mb-2 flex items-center gap-2 text-amber-600">
-                  <Star className="h-4 w-4 fill-current" />
-                  <span className="text-xs font-medium text-slate-500">คะแนนรีวิว</span>
-                </div>
-                <p className="text-sm font-semibold text-slate-800">
-                  {typeof locationState?.rating === 'number'
-                    ? `${locationState.rating.toFixed(1)} / 5${locationState.reviewCount !== undefined ? ` (${locationState.reviewCount.toLocaleString('th-TH')} รีวิว)` : ''}`
-                    : 'ยังไม่มีข้อมูล'}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 p-3">
-                <div className="mb-2 flex items-center gap-2 text-[#1F2E7A]">
-                  <Sunrise className="h-4 w-4" />
-                  <span className="text-xs font-medium text-slate-500">ช่วงเวลาที่แนะนำ</span>
-                </div>
-                <p className="text-sm font-semibold leading-relaxed text-slate-800">{recommendedTime}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 p-3">
-                <div className="mb-2 flex items-center gap-2 text-emerald-700">
-                  <Banknote className="h-4 w-4" />
-                  <span className="text-xs font-medium text-slate-500">ค่าใช้จ่ายโดยประมาณ</span>
-                </div>
-                <p className="text-sm font-semibold leading-relaxed text-slate-800">{estimatedCost}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 p-3">
-                <div className="mb-2 flex items-center gap-2 text-[#1F2E7A]">
-                  <MapPin className="h-4 w-4" />
-                  <span className="text-xs font-medium text-slate-500">จังหวัด</span>
-                </div>
-                <p className="text-sm font-semibold text-slate-800">{destinationProvince}</p>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="mb-3 text-base font-bold text-[#1F2E7A]">กิจกรรมที่น่าสนใจ</h3>
-              <div className="flex flex-wrap gap-2">
-                {destinationActivities.map((activity) => (
-                  <span key={activity} className="rounded-full bg-blue-50 px-3 py-2 text-xs font-medium text-[#1F2E7A] sm:text-sm">
-                    {activity}
                   </span>
-                ))}
+                </div>
+                <h2 className="text-3xl font-black leading-tight sm:text-5xl">{attraction.title}</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/90 sm:text-base">{attraction.description}</p>
+                <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-medium">
+                  {typeof locationState?.rating === 'number' ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                    <strong>{locationState.rating.toFixed(1)}/5</strong>
+                    {locationState.reviewCount !== undefined && <span className="text-white/80">({locationState.reviewCount.toLocaleString('th-TH')} รีวิว)</span>}
+                  </span>
+                  ) : <span className="text-white/80">ยังไม่มีข้อมูลคะแนนรีวิว</span>}
+                  {destinationDistance !== null && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <MapPin className="h-4 w-4" />
+                    {destinationDistance.toFixed(1)} กม. จากตำแหน่งของคุณ
+                  </span>
+                  )}
+                </div>
               </div>
-            </div>
-
-            <div className="mt-6 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-2">
-              <div>
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-[#1F2E7A]">
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFavoriteIds((current) => current.includes(favoriteKey) ? current.filter((key) => key !== favoriteKey) : [...current, favoriteKey])}
+                  aria-pressed={isFavorite}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white px-4 text-sm font-semibold text-[#1F2E7A] shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-50"
+                >
+                  <Heart className={`h-4 w-4 ${isFavorite ? 'fill-rose-500 text-rose-500' : ''}`} />
+                  {isFavorite ? 'บันทึกแล้ว' : 'บันทึกสถานที่'}
+                </button>
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(coordinates?.lat && coordinates.lon ? `${coordinates.lat},${coordinates.lon}` : `${attraction.title} ${destinationProvince}`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[#1F2E7A] px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-900"
+                >
                   <Navigation className="h-4 w-4" />
-                  ข้อมูลสำหรับการเดินทาง
-                </h3>
-                <p className="text-sm leading-relaxed text-slate-600">
-                  วิธีเดินทางและเวลาเดินทางขึ้นอยู่กับจุดเริ่มต้น กรุณาเปิดแผนที่เพื่อคำนวณเส้นทางล่าสุด
-                </p>
-                <p className="mt-2 text-xs text-slate-500">
-                  เวลาเปิด-ปิด: {displayHours || 'ไม่มีข้อมูลจากแหล่งข้อมูล'}
-                </p>
-                {fullMapUrl && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <a href={fullMapUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-[#1F2E7A] hover:bg-blue-100">
-                      <MapPin className="h-4 w-4" />
-                      ดูบนแผนที่
-                    </a>
-                    <a
-                      href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(coordinates?.lat && coordinates.lon ? `${coordinates.lat},${coordinates.lon}` : `${attraction.title} ${destinationProvince}`)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-xl bg-[#1F2E7A] px-3 py-2 text-xs font-semibold text-white hover:bg-[#162056]"
-                    >
-                      <Navigation className="h-4 w-4" />
-                      นำทาง
-                    </a>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-[#1F2E7A]">
-                    <Lightbulb className="h-4 w-4 text-amber-500" />
-                    สิ่งที่ควรรู้
-                  </h3>
-                  <p className="text-sm leading-relaxed text-slate-600">{travelKnow}</p>
-                </div>
-                <div>
-                  <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-[#1F2E7A]">
-                    <ShieldAlert className="h-4 w-4 text-orange-500" />
-                    ข้อควรระวัง
-                  </h3>
-                  <p className="text-sm leading-relaxed text-slate-600">{travelCaution}</p>
-                </div>
+                  นำทาง
+                </a>
               </div>
             </div>
           </section>
 
-          {/* Location Info */}
-          <div className="bg-white rounded-2xl shadow-md p-4 mb-4 space-y-3">
-            <div className="flex items-start gap-3">
-              <MapPin className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-gray-500 mb-1">ที่ตั้ง</p>
-                <p className="text-sm text-gray-800">{formatAddress(detailedAddress) || verifiedLocation || attraction.location}</p>
-              </div>
-            </div>
-            {(locationState?.category || placeDetails.category) && (
-              <div className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">ประเภทสถานที่</p>
-                  <p className="text-sm text-gray-800">{locationState?.category || placeDetails.category}</p>
-                </div>
-              </div>
-            )}
-            {(placeDetails.operator || attraction.phone || placeDetails.phone) && (
-              <div className="flex items-start gap-3">
-                <Phone className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-                <div>
-                  {placeDetails.operator && <><p className="text-xs text-gray-500 mb-1">ผู้ดูแล</p><p className="text-sm text-gray-800">{placeDetails.operator}</p></>}
-                  {(attraction.phone || placeDetails.phone) && <><p className="text-xs text-gray-500 mb-1 mt-2">โทรศัพท์</p><p className="text-sm text-gray-800">{placeDetails.phone || attraction.phone}</p></>}
-                </div>
-              </div>
-            )}
-            {displayHours && (
-              <div className="flex items-start gap-3">
-                <Clock className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">เวลาทำการ</p>
-                  <p className="text-sm text-gray-800">{displayHours}</p>
-                  <p className="text-xs text-gray-500 mt-1">วันหยุด: {getHolidayInfo(displayHours)}</p>
-                  {dailyHours.size > 0 && (
-                    <div className="mt-2 space-y-1 text-sm text-gray-700">
-                      {weekDays.map(([code, label]) => (
-                        <div key={code} className="grid grid-cols-[7rem_1fr] gap-2">
-                          <span>{label}</span><span>{dailyHours.get(code) || 'ไม่ระบุ'}</span>
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.95fr)]">
+            <div className="min-w-0 space-y-5">
+              <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/70 to-white p-4 shadow-sm sm:p-5">
+                <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-[#1F2E7A]">
+                  <Star className="h-5 w-5 fill-amber-400 text-amber-500" />
+                  จุดเด่นของสถานที่
+                </h3>
+                {destinationHighlights.length ? (
+                  <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  {destinationHighlights.map((highlight, index) => {
+                    const HighlightIcon = highlightIcons[index % highlightIcons.length];
+                    return (
+                      <li key={highlight} className="flex min-h-24 items-start gap-3 rounded-xl bg-white/90 p-3 ring-1 ring-blue-50">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700">
+                              <HighlightIcon className="h-5 w-5" />
+                        </span>
+                        <span className="text-xs font-medium leading-relaxed text-slate-700 sm:text-sm">{highlight}</span>
+                      </li>
+                    );
+                  })}
+                  </ul>
+                ) : <p className="text-sm text-slate-500">ไม่มีข้อมูลจุดเด่นจากแหล่งข้อมูล</p>}
+              </section>
+
+              {destinationActivities.length > 0 && placeImages.length > 0 && (
+                <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-[#1F2E7A]">
+                  <Compass className="h-5 w-5" />
+                  กิจกรรมที่น่าสนใจ
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {destinationActivities.slice(0, 4).map((activity, index) => {
+                    const ActivityIcon = /ดำน้ำ|เล่นน้ำ/.test(activity)
+                      ? Waves
+                      : activity === 'ล่องเรือ'
+                        ? Ship
+                        : activity === 'เดินป่า' || activity === 'ชมธรรมชาติ'
+                              ? Compass
+                              : activity === 'ไหว้พระ' || activity === 'ชมสถาปัตยกรรม'
+                            ? Landmark
+                            : Camera;
+                    const activityImage = placeImages[index % placeImages.length];
+                    return (
+                      <article key={activity} className="group overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-1 hover:shadow-md">
+                        <div className="relative h-28 overflow-hidden sm:h-32">
+                              <img src={activityImage} alt={`${attraction.title} - ${activity}`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                              <span className="absolute bottom-2 left-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-[#1F2E7A] shadow-sm">
+                            <ActivityIcon className="h-4 w-4" />
+                              </span>
+                        </div>
+                        <div className="flex min-h-11 items-center justify-between gap-2 px-3 py-2">
+                              <span className="text-xs font-semibold text-[#1F2E7A] sm:text-sm">{activity}</span>
+                              <ArrowLeft className="h-4 w-4 rotate-180 text-blue-500" />
+                        </div>
+                      </article>
+                    );
+                  })}
+                  </div>
+                </section>
+              )}
+
+              <section className={`relative overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br p-4 shadow-sm sm:p-5 ${weatherTheme.card}`}>
+                <span className="weather-visual" aria-hidden="true">
+                  {weather?.condition === 'clear' && !weather.isNight
+                  ? <span className="weather-sun-graphic weather-sun" />
+                  : weather?.condition === 'thunderstorm' || weather?.condition === 'rain'
+                    ? <><span className="weather-cloud-graphic weather-cloud" /><span className="weather-rain-graphic weather-rain" />{weather.condition === 'thunderstorm' && <span className="weather-lightning-graphic weather-lightning" />}</>
+                    : weather?.isNight
+                      ? <><span className="weather-moon-graphic" /><span className="weather-stars-graphic weather-stars" /></>
+                      : <span className="weather-cloud-graphic weather-cloud" />}
+                </span>
+                <div className="relative z-[1]">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-2 text-lg font-bold">
+                    <WeatherIcon className="h-5 w-5" />
+                    พยากรณ์อากาศ ({attraction.title})
+                  </h3>
+                  <span className="text-xs opacity-75">
+                    {weather ? `อัปเดตล่าสุด ${new Date(weather.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.` : ''}
+                  </span>
+                  </div>
+                  {weather ? (
+                  <>
+                    <div className="mb-4 flex flex-wrap items-end gap-x-4 gap-y-1">
+                      <p className="text-4xl font-black">{weather.currentTemperature != null ? `${weather.currentTemperature}°C` : '—'}</p>
+                      <p className="pb-1 text-sm font-medium">{weatherTheme.label}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 border-y border-current/10 py-3 sm:grid-cols-4">
+                      <div className="flex items-center gap-2"><CloudRain className="h-4 w-4 text-sky-500" /><span className="text-xs">ฝนวันนี้<br /><strong>{weather.rain[0] != null ? `${weather.rain[0]}%` : 'ไม่มีข้อมูล'}</strong></span></div>
+                      <div className="flex items-center gap-2"><Wind className="h-4 w-4 text-blue-500" /><span className="text-xs">ความเร็วลม<br /><strong>{`${weather.wind} กม./ชม.`}</strong></span></div>
+                      <div className="flex items-center gap-2"><Droplets className="h-4 w-4 text-cyan-600" /><span className="text-xs">ความชื้น<br /><strong>{weather.humidity != null ? `${weather.humidity}%` : 'ไม่มีข้อมูล'}</strong></span></div>
+                      <div className="flex items-center gap-2"><Thermometer className="h-4 w-4 text-orange-500" /><span className="text-xs">ฝนปัจจุบัน<br /><strong>{weather.currentRain.toFixed(1)} มม.</strong></span></div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                      {forecastLabels.map((label, index) => (
+                        <div key={label} className="rounded-xl bg-white/55 p-2">
+                              <p className={`text-xs ${weatherTheme.muted}`}>{label}</p>
+                              <p className="text-lg font-bold">{weather.temperatures[index] != null ? `${weather.temperatures[index]}°` : '—'}</p>
+                              <p className="text-[11px]">โอกาสฝน {weather.rain[index] != null ? `${weather.rain[index]}%` : '—'}</p>
                         </div>
                       ))}
                     </div>
+                    {weatherNeedsCaution && (
+                      <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-medium leading-relaxed text-amber-900">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <span><strong>ควรระวัง</strong> · {weatherCautionText}</span>
+                      </div>
+                    )}
+                    {!weatherNeedsCaution && (
+                      <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+                        <Cloud className="h-4 w-4 shrink-0" />
+                        เหมาะสำหรับการท่องเที่ยว
+                      </div>
+                    )}
+                  </>
+                  ) : weatherLoading ? (
+                    <p className="rounded-xl border border-sky-100 bg-white/80 p-4 text-sm text-slate-600">กำลังโหลดสภาพอากาศตามพิกัดของสถานที่…</p>
+                  ) : weatherError ? (
+                    <p className="rounded-xl border border-amber-200 bg-white/80 p-4 text-sm text-amber-800">ไม่สามารถโหลดข้อมูลสภาพอากาศได้</p>
+                  ) : <p className="rounded-xl border border-slate-200 bg-white/80 p-4 text-sm text-slate-600">ไม่สามารถโหลดข้อมูลสภาพอากาศได้</p>}
+                </div>
+              </section>
+
+            </div>
+
+            <aside className="min-w-0 space-y-5">
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-base font-bold text-[#1F2E7A]">รูปภาพเพิ่มเติม</h3>
+                  {placeImages[1] && (
+                  <a href={placeImages[1]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-2 text-xs font-semibold text-[#1F2E7A] hover:bg-blue-100">
+                    <Camera className="h-4 w-4" />
+                    ดูรูปภาพเพิ่มเติม
+                  </a>
                   )}
                 </div>
-              </div>
-            )}
-            {locationState?.facebook && <div className="flex items-start gap-3">
-              <Facebook className="w-5 h-5 text-[#1F2E7A] mt-0.5 flex-shrink-0" />
-              <div><p className="text-xs text-gray-500 mb-1">เพจ Facebook</p><a href={locationState.facebook} target="_blank" rel="noreferrer" className="text-sm text-blue-600 break-all">{locationState.facebook}</a></div>
-            </div>}
-            {mapUrl && (
-              <div className="overflow-hidden rounded-xl border border-gray-200">
-                <iframe
-                  title={`แผนที่ ${attraction.title}`}
-                  src={mapUrl}
-                  className="h-56 w-full"
-                  loading="lazy"
-                />
+                {placeImages.length > 1 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                  {placeImages.slice(1).map((image, index) => (
+                    <a key={image} href={image} target="_blank" rel="noreferrer" className="group relative block overflow-hidden rounded-xl">
+                      <img src={image} alt={`${attraction.title} ภาพเพิ่มเติม ${index + 1}`} className="h-28 w-full object-cover transition-transform duration-300 group-hover:scale-105 sm:h-36" />
+                    </a>
+                  ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{placeImages.length ? 'ไม่มีรูปภาพเพิ่มเติมจากแหล่งข้อมูล' : 'กำลังโหลดรูปภาพสถานที่'}</p>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <h3 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1F2E7A]">
+                  <Landmark className="h-5 w-5" />
+                  ข้อมูลสำคัญสำหรับการเดินทาง
+                </h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                  <p className="mb-1 flex items-center gap-1.5 text-[11px] text-slate-500"><Sunrise className="h-4 w-4 text-[#1F2E7A]" />ช่วงเวลาที่แนะนำ</p>
+                  <p className="text-xs font-semibold text-slate-800">{recommendedTime || 'ไม่มีข้อมูล'}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                  <p className="mb-1 flex items-center gap-1.5 text-[11px] text-slate-500"><Banknote className="h-4 w-4 text-emerald-700" />ค่าใช้จ่าย</p>
+                  <p className="text-xs font-semibold text-slate-800">{estimatedCost || 'ไม่มีข้อมูล'}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                  <p className="mb-1 flex items-center gap-1.5 text-[11px] text-slate-500"><Navigation className="h-4 w-4 text-[#1F2E7A]" />การเดินทาง</p>
+                  <p className="text-xs font-semibold text-slate-800">{fullMapUrl ? 'เปิดแผนที่เพื่อคำนวณเส้นทาง' : 'ไม่มีข้อมูล'}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                  <p className="mb-1 flex items-center gap-1.5 text-[11px] text-slate-500"><MapPin className="h-4 w-4 text-[#1F2E7A]" />จังหวัด / ที่ตั้ง</p>
+                  <p className="line-clamp-2 text-xs font-semibold text-slate-800">{destinationProvince || 'ไม่มีข้อมูล'}</p>
+                  </div>
+                </div>
                 {fullMapUrl && (
-                  <a
-                    href={fullMapUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-center bg-blue-50 py-3 text-sm font-semibold text-blue-700"
-                  >
-                    กดเพื่อดูแผนที่แบบเต็ม
+                  <a href={fullMapUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1F2E7A] px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-900">
+                  <Navigation className="h-4 w-4" />
+                  นำทางไปสถานที่
                   </a>
                 )}
-              </div>
-            )}
+              </section>
+
+              {isSea && (
+                <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4 shadow-sm sm:p-5">
+                  <h3 className="mb-3 flex items-center gap-2 text-base font-bold text-sky-900">
+                    <Waves className="h-5 w-5 text-sky-600" />
+                    สภาพทะเลและลม
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-white/85 p-3">
+                      <p className="mb-1 flex items-center gap-2 text-xs text-sky-700"><Wind className="h-4 w-4" />ความเร็วลม</p>
+                      <p className="text-lg font-bold text-sky-900">{marine?.wind != null ? `${marine.wind} กม./ชม.` : weather ? `${weather.wind} กม./ชม.` : 'ไม่มีข้อมูล'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white/85 p-3">
+                      <p className="mb-1 flex items-center gap-2 text-xs text-sky-700"><Waves className="h-4 w-4" />ความสูงคลื่น</p>
+                      <p className="text-lg font-bold text-sky-900">{marine ? `${marine.wave} ม.` : 'ไม่มีข้อมูล'}</p>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-sky-700">ข้อมูลตามพิกัดสถานที่จาก Marine API</p>
+                </section>
+              )}
+
+              <section className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm sm:p-5">
+                <h3 className="mb-2 flex items-center gap-2 text-base font-bold text-amber-900">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                  ข้อควรรู้
+                </h3>
+                <p className="text-sm leading-relaxed text-amber-950">{travelCaution}</p>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-2 text-base font-bold text-[#1F2E7A]">
+                  <MapPin className="h-5 w-5" />
+                  ข้อมูลเพิ่มเติม
+                  </h3>
+                  {fullMapUrl && <a href={fullMapUrl} target="_blank" rel="noreferrer" aria-label="เปิดแผนที่" className="rounded-full p-2 text-[#1F2E7A] hover:bg-blue-50"><Navigation className="h-4 w-4" /></a>}
+                </div>
+                <div className="space-y-3 text-sm">
+                  <div>
+                  <p className="mb-1 text-xs text-slate-500">ที่อยู่</p>
+                  <p className="leading-relaxed text-slate-700">{locationState?.location || verifiedLocation || attraction.location || formatAddress(detailedAddress) || 'ไม่มีข้อมูลที่อยู่'}</p>
+                  </div>
+                  {displayHours && (
+                  <div>
+                    <p className="mb-1 flex items-center gap-1.5 text-xs text-slate-500"><Clock className="h-4 w-4" />เวลาทำการ</p>
+                    <p className="text-slate-700">{displayHours}</p>
+                  </div>
+                  )}
+                  {(placeDetails.operator || attraction.phone || placeDetails.phone) && (
+                  <div>
+                    <p className="mb-1 flex items-center gap-1.5 text-xs text-slate-500"><Phone className="h-4 w-4" />ติดต่อ</p>
+                    <p className="text-slate-700">{placeDetails.operator ? `${placeDetails.operator} · ` : ''}{placeDetails.phone || attraction.phone}</p>
+                  </div>
+                  )}
+                  <div className="border-t border-slate-100 pt-3">
+                  <p className="mb-1 flex items-center gap-1.5 text-xs text-slate-500"><Star className="h-4 w-4 text-amber-500" />รีวิวจากนักท่องเที่ยว</p>
+                  {typeof locationState?.rating === 'number' ? (
+                    <p className="font-semibold text-slate-800">{locationState.rating.toFixed(1)} / 5{locationState.reviewCount !== undefined ? ` · ${locationState.reviewCount.toLocaleString('th-TH')} รีวิว` : ''}</p>
+                  ) : <p className="text-slate-500">ไม่มีข้อมูลรีวิวจากแหล่งข้อมูล</p>}
+                  </div>
+                </div>
+                {mapUrl && (
+                  <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+                  <iframe title={`แผนที่ ${attraction.title}`} src={mapUrl} className="h-48 w-full" loading="lazy" />
+                  </div>
+                )}
+                {nearbyPlaces.length > 0 && (
+                  <div className="mt-4 border-t border-slate-100 pt-3">
+                  <h4 className="mb-2 text-sm font-semibold text-[#1F2E7A]">สถานที่ใกล้เคียงจากแผนที่</h4>
+                  <div className="space-y-2">
+                    {nearbyPlaces.map((place) => (
+                      <a key={place.id} href={`https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lon}`} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 p-3 text-sm transition hover:bg-blue-50">
+                        <span className="min-w-0"><span className="block truncate font-semibold text-slate-800">{place.name}</span><span className="text-xs text-slate-500">{place.type}</span></span>
+                        <Navigation className="h-4 w-4 shrink-0 text-[#1F2E7A]" />
+                      </a>
+                    ))}
+                  </div>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/risk-alert/${id}`, { state: { ...locationState, title: attraction.title, pm25: airQuality?.pm25, aqi: airQuality?.aqi } })}
+                  className={`mt-4 flex w-full items-center gap-3 rounded-xl border p-3 text-left transition hover:shadow-sm ${airCardStyle}`}
+                >
+                  <span className={`${airIconStyle} flex h-9 w-9 shrink-0 items-center justify-center rounded-full`}>
+                  <AlertTriangle className="h-4 w-4 text-white" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">คุณภาพอากาศ PM2.5</span>
+                  <span className="block text-xs">{airQuality ? `${airStatusText} · ${airQuality.pm25} µg/m³ · AQI ${airQuality.aqi}` : 'ไม่พบข้อมูลคุณภาพอากาศ'}</span>
+                  </span>
+                  <ArrowLeft className="h-4 w-4 rotate-180" />
+                </button>
+              </section>
+            </aside>
           </div>
-
-          {nearbyPlaces.length > 0 && (
-            <div className="bg-[#1F2E7A] rounded-2xl p-4 mb-4">
-              <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-                <MapPin className="w-5 h-5" />
-                สถานที่ใกล้เคียงที่แนะนำ
-              </h3>
-              <p className="text-white/80 text-sm mb-3">จุดที่อยู่ใกล้กับสถานที่นี้จากข้อมูลแผนที่จริง</p>
-              <div className="space-y-2">
-                {nearbyPlaces.map((place) => (
-                  <a
-                    key={place.id}
-                    href={`https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lon}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block rounded-xl bg-white p-3"
-                  >
-                    <p className="font-semibold text-[#1F2E7A]">{place.name}</p>
-                    <p className="text-xs text-gray-500 mt-1">{place.type} · เปิดแผนที่</p>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Weather Forecast */}
-          <button
-            type="button"
-            onClick={() => setShowWeatherDetails((isOpen) => !isOpen)}
-            aria-expanded={showWeatherDetails}
-            className={`relative w-full overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br p-4 mb-4 text-left shadow-sm ${weatherTheme.card}`}
-          >
-            <span className="weather-visual" aria-hidden="true">
-              {weather?.condition === 'clear' && !weather.isNight ? <span className="weather-sun-graphic weather-sun" /> : weather?.condition === 'thunderstorm' || weather?.condition === 'rain' ? <><span className="weather-cloud-graphic weather-cloud" /><span className="weather-rain-graphic weather-rain" />{weather.condition === 'thunderstorm' && <span className="weather-lightning-graphic weather-lightning" />}</> : weather?.isNight ? <><span className="weather-moon-graphic" /><span className="weather-stars-graphic weather-stars" /></> : <span className="weather-cloud-graphic weather-cloud" />}
-            </span>
-            {weather?.condition === 'cloudy' && <span className="weather-cloud pointer-events-none absolute right-14 top-14 text-3xl opacity-25" aria-hidden="true">☁︎</span>}
-            <div className="relative z-10">
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <span className="text-xl" aria-hidden="true">{weatherTheme.icon}</span>
-              <span className="flex-1">พยากรณ์อากาศ</span>
-              <span className="text-xs font-normal opacity-80">{showWeatherDetails ? 'ซ่อนรายละเอียด' : 'แตะเพื่อดูรายละเอียด'}</span>
-            </h3>
-            {!weather ? (
-              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">ไม่พบข้อมูลสภาพอากาศแบบเรียลไทม์</div>
-            ) : weather.condition === 'thunderstorm' ? (
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-100 px-3 py-2 text-xs font-semibold text-red-800">
-                <AlertTriangle className="h-4 w-4 text-red-600" /> ไม่แนะนำให้เดินทาง คาดว่าจะมีฝนฟ้าคะนอง
-              </div>
-            ) : (weather.currentRain > 0 || weather.rain[0] > 0) ? (
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
-                <AlertTriangle className="h-4 w-4 text-amber-600" /> ควรระวัง คาดว่าจะมีฝนตกวันนี้ เตรียมร่มก่อนเดินทาง
-              </div>
-            ) : (
-              <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">อากาศดี เหมาะสำหรับการเดินทาง</div>
-            )}
-            <div className="grid grid-cols-3 gap-3 text-center">
-              {forecastLabels.map((label, index) => (
-                <div key={label}>
-                  <p className={`text-xs mb-1 ${weatherTheme.muted}`}>{label}</p>
-                  <p className="text-2xl font-bold">{weather?.temperatures[index] ?? '--'}{weather ? '°' : ''}</p>
-                  <div className="flex items-center justify-center gap-1 text-xs mt-1">
-                    <Droplets className="w-3 h-3" />
-                    <span>{weather?.rain[index] ?? '--'}{weather ? '%' : ''}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {showWeatherDetails && (
-              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-sky-200 pt-3 text-sm">
-                <div>
-                  <p className="text-xs text-sky-700">ฝนที่กำลังตก</p>
-                  <p className="font-semibold">{weather ? `${weather.currentRain.toFixed(1)} มม.` : 'กำลังโหลด...'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-sky-700">ความเร็วลม</p>
-                  <p className="font-semibold">{weather ? `${weather.wind} กม./ชม.` : 'กำลังโหลด...'}</p>
-                </div>
-              </div>
-            )}
-            </div>
-          </button>
-
-          {isSea && (
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 mb-4">
-              <h3 className="font-semibold text-sky-900 mb-3 flex items-center gap-2">
-                <Waves className="w-5 h-5 text-sky-600" />
-                สภาพทะเลและลม
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-white/80 p-3">
-                  <div className="flex items-center gap-2 text-sky-700 mb-1"><Wind className="w-4 h-4" /><span className="text-xs">ความเร็วลม</span></div>
-                  <p className="text-xl font-bold text-sky-900">{weather?.wind ?? '--'} <span className="text-xs font-normal">กม./ชม.</span></p>
-                </div>
-                <div className="rounded-xl bg-white/80 p-3">
-                  <div className="flex items-center gap-2 text-sky-700 mb-1"><Waves className="w-4 h-4" /><span className="text-xs">ความสูงคลื่น</span></div>
-                  <p className="text-xl font-bold text-sky-900">{marine?.wave ?? '--'} <span className="text-xs font-normal">ม.</span></p>
-                </div>
-              </div>
-              <p className="text-xs text-sky-700 mt-3">ข้อมูลตามพิกัดสถานที่จาก Marine API</p>
-            </div>
-          )}
-
-              {isWaterRelatedNature && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 mb-4">
-              <h3 className="font-semibold text-amber-900 mb-2 flex items-center gap-2">
-                <CloudRain className="w-5 h-5 text-amber-600" />
-                เฝ้าระวังน้ำป่าไหลหลาก
-              </h3>
-              <p className="text-sm text-amber-800 leading-relaxed">
-                ฝนที่กำลังตกในพื้นที่ {weather ? `${weather.currentRain.toFixed(1)} มม.` : '--'} · โอกาสฝนวันนี้ {weather ? `${weather.rain[0]}%` : '--'} ควรตรวจสอบประกาศของอุทยานก่อนเดินทาง และหลีกเลี่ยงลำห้วยเมื่อฝนตกหนัก
-              </p>
-            </div>
-          )}
-
-          {/* PM2.5 Warning Card - Clickable */}
-          <button
-            onClick={() => navigate(`/risk-alert/${id}`, { state: { ...locationState, title: attraction.title, pm25: airQuality?.pm25, aqi: airQuality?.aqi } })}
-            className={`w-full border-2 rounded-2xl p-4 text-left transition-colors ${airCardStyle}`}
-          >
-            <div className="flex items-start gap-3">
-              <div className={`${airIconStyle} rounded-full p-2`}>
-                <AlertTriangle className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold mb-1">ค่า PM2.5</h3>
-                <p className="text-sm mb-2">
-                  ค่า PM2.5 {airQuality ? `${airStatusText} ${airQuality.pm25} µg/m³` : 'กำลังโหลดข้อมูล...'}
-                </p>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-black/10 rounded-full h-2">
-                    <div className="bg-current h-2 rounded-full" style={{ width: `${Math.min(100, airQuality?.pm25 ?? 0)}%` }}></div>
-                  </div>
-                  <span className="text-xs font-semibold">{airQuality?.pm25 ?? '--'}</span>
-                </div>
-                <p className="text-xs mt-2">แตะเพื่อดูรายละเอียด</p>
-              </div>
-            </div>
-          </button>
-        </div>
+        </main>
       </div>
     </div>
   );

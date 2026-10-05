@@ -1,8 +1,11 @@
 export type WindyWeather = {
   temperatures: number[];
   rain: number[];
+  currentTemperature: number | null;
   wind: number;
   currentRain: number;
+  humidity: number | null;
+  updatedAt: string;
   condition: 'clear' | 'cloudy' | 'rain' | 'thunderstorm';
   isNight: boolean;
 };
@@ -77,8 +80,11 @@ export async function fetchWindyWeather(latitude: string | number, longitude: st
   return {
     temperatures: forecastDays.map((day) => day.temperature),
     rain: forecastDays.map((day) => day.rain),
+    currentTemperature: temperatures[0] != null ? Math.round(temperatures[0] - 273.15) : null,
     wind: Math.round(windSpeed),
     currentRain: precipitation[0] || 0,
+    humidity: null,
+    updatedAt: new Date().toISOString(),
     condition: conditionFromWeatherCode(undefined, precipitation[0] || 0, cloudCover, cape),
     isNight: new Date().getHours() < 6 || new Date().getHours() >= 18,
   };
@@ -86,12 +92,12 @@ export async function fetchWindyWeather(latitude: string | number, longitude: st
 
 async function fetchPublicWeather(latitude: string | number, longitude: string | number): Promise<WindyWeather> {
   const response = await fetch(
-    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,wind_speed_10m,precipitation,weather_code,is_day&daily=temperature_2m_max,precipitation_probability_max&forecast_days=3&timezone=auto`,
+    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation,weather_code,is_day&daily=temperature_2m_max,precipitation_probability_max&forecast_days=3&timezone=auto`,
   );
   if (!response.ok) throw new Error(`Public weather API request failed: ${response.status}`);
 
   const data = await response.json() as {
-    current?: { wind_speed_10m?: number; precipitation?: number; weather_code?: number; is_day?: number };
+    current?: { time?: string; temperature_2m?: number; relative_humidity_2m?: number; wind_speed_10m?: number; precipitation?: number; weather_code?: number; is_day?: number };
     daily?: { temperature_2m_max?: number[]; precipitation_probability_max?: number[] };
   };
   const temperatures = data.daily?.temperature_2m_max || [];
@@ -101,8 +107,11 @@ async function fetchPublicWeather(latitude: string | number, longitude: string |
   return {
     temperatures: temperatures.slice(0, 3).map(Math.round),
     rain: rain.slice(0, 3).map(Math.round),
+    currentTemperature: typeof data.current?.temperature_2m === 'number' ? Math.round(data.current.temperature_2m) : null,
     wind: Math.round(data.current?.wind_speed_10m || 0),
     currentRain: data.current?.precipitation || 0,
+    humidity: typeof data.current?.relative_humidity_2m === 'number' ? data.current.relative_humidity_2m : null,
+    updatedAt: data.current?.time || new Date().toISOString(),
     condition: conditionFromWeatherCode(data.current?.weather_code, data.current?.precipitation || 0),
     isNight: data.current?.is_day === 0,
   };
@@ -113,7 +122,7 @@ async function fetchTmdWeather(latitude: string | number, longitude: string | nu
   if (!apiKey) return null;
 
   const response = await fetch(
-    `https://data.tmd.go.th/nwpapi/v1/forecast/location/hourly?lat=${latitude}&lon=${longitude}&fields=tc,rain,cond,ws&duration=72`,
+    `https://data.tmd.go.th/nwpapi/v1/forecast/location/hourly?lat=${latitude}&lon=${longitude}&fields=tc,rain,cond,ws,rh&duration=72`,
     { headers: { Accept: 'application/json', Authorization: `Bearer ${apiKey}` } },
   );
   if (!response.ok) return null;
@@ -140,8 +149,11 @@ async function fetchTmdWeather(latitude: string | number, longitude: string | nu
   return {
     temperatures: temperatures.slice(0, 3).map(Math.round),
     rain: rain.slice(0, 3).map(Math.round),
+    currentTemperature: temperatures[0] != null ? Math.round(temperatures[0]) : null,
     wind: Math.round(wind),
     currentRain: rainNow,
+    humidity: firstRecordNumber(current, ['rh', 'humidity', 'relative_humidity']) ?? null,
+    updatedAt: new Date().toISOString(),
     condition,
     isNight: new Date().getHours() < 6 || new Date().getHours() >= 18,
   };
