@@ -26,7 +26,7 @@ export default function DatePicker({ placeholder, selected, onSelect, minDate }:
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-4 z-50 w-[320px]"
+          className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-4 z-50 w-[min(320px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)]"
           sideOffset={5}
           align="start"
         >

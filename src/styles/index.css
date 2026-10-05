@@ -3,29 +3,51 @@
 @import './theme.css';
 @import './globals.css';
 
+html, body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	min-height: 100%;
+	overflow-x: hidden;
+}
+
+* {
+	box-sizing: border-box;
+}
+
 @layer components {
 	.app-shell {
 		min-height: 100vh;
 		width: 100%;
-		max-width: 480px;
-		margin-inline: auto;
+		max-width: none;
+		margin: 0;
 		background: #fff;
 	}
 
 	.app-content {
+		width: 100%;
+		max-width: none;
 		padding: 1rem;
 	}
 }
 
 @media (min-width: 768px) {
 	.app-shell {
-		max-width: 1200px;
-		box-shadow: 0 18px 50px rgb(31 46 122 / 0.1);
+		width: 100%;
+		max-width: none;
+		box-shadow: 0 18px 50px rgb(31 46 122 / 0.08);
 	}
 
 	.app-content {
-		width: min(100%, 1040px);
-		margin-inline: auto;
-		padding: 1.5rem 2rem 3rem;
+		width: 100%;
+		max-width: none;
+		margin-inline: 0;
+		padding: 1.5rem clamp(1rem, 2.5vw, 2.75rem) 3rem;
+	}
+}
+
+@media (max-width: 767px) {
+	.app-content {
+		padding: 0.875rem 0.75rem 1.25rem;
 	}
 }

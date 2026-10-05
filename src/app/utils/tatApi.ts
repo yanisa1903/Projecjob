@@ -8,6 +8,12 @@ export type TatAttraction = {
   latitude?: number;
   longitude?: number;
   images: string[];
+  rating?: number;
+  reviewCount?: number;
+  entranceFee?: number;
+  openingHours?: string;
+  suitableFor?: string[];
+  createdAt?: string;
 };
 
 export function lockTatImages(title: string, images: string[]) {
@@ -34,7 +40,9 @@ function firstString(record: TatRecord, keys: string[]) {
 
 function firstNumber(record: TatRecord, keys: string[]) {
   for (const key of keys) {
-    const value = Number(record[key]);
+    const rawValue = record[key];
+    if (typeof rawValue !== 'number' && (typeof rawValue !== 'string' || !rawValue.trim())) continue;
+    const value = Number(rawValue);
     if (Number.isFinite(value)) return value;
   }
   return undefined;
@@ -84,6 +92,16 @@ function toAttraction(record: TatRecord): TatAttraction | null {
     latitude: firstNumber(record, ['latitude', 'lat']),
     longitude: firstNumber(record, ['longitude', 'lon', 'lng']),
     images: imageUrls(record),
+    rating: firstNumber(record, ['rating', 'average_rating', 'review_score']),
+    reviewCount: firstNumber(record, ['review_count', 'reviews_count', 'number_of_reviews']),
+    entranceFee: firstNumber(record, ['entrance_fee', 'admission_fee', 'ticket_price']),
+    openingHours: firstString(record, ['opening_hours', 'openingHours', 'open_time']),
+    suitableFor: Array.isArray(record.suitable_for)
+      ? record.suitable_for.filter((value): value is string => typeof value === 'string')
+      : Array.isArray(record.tags)
+        ? record.tags.filter((value): value is string => typeof value === 'string')
+        : undefined,
+    createdAt: firstString(record, ['created_at', 'createdAt', 'date_created']),
   };
 }
 

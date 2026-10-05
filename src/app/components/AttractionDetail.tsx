@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, useParams } from 'react-router';
-import { ArrowLeft, MapPin, Clock, Phone, Facebook, Cloud, Droplets, Wind, Waves, CloudRain, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, Phone, Facebook, Cloud, Droplets, Wind, Waves, CloudRain, AlertTriangle, Star, Sunrise, Banknote, Sparkles, Camera, Ship, Landmark, Leaf, Navigation, Lightbulb, ShieldAlert, Heart, Thermometer, Compass } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchPlaceImages, lockThreeImages } from '../utils/placeImages';
 import { fetchTatPlace, lockTatImages } from '../utils/tatApi';
@@ -64,6 +64,21 @@ function formatAddress(address?: Record<string, string>) {
   ].filter(Boolean).join(' ');
 }
 
+function getProvince(location: string, providedProvince?: string) {
+  if (providedProvince) return providedProvince.replace(/^จังหวัด/, '');
+  const provinceMatch = location.match(/จังหวัด\s*([^,\d]+)/);
+  return provinceMatch?.[1]?.trim() || 'ไม่พบข้อมูลจังหวัด';
+}
+
+function distanceInKm(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) {
+  const radians = (value: number) => (value * Math.PI) / 180;
+  const latitudeDelta = radians(to.latitude - from.latitude);
+  const longitudeDelta = radians(to.longitude - from.longitude);
+  const arc = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(from.latitude)) * Math.cos(radians(to.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
 export default function AttractionDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -82,6 +97,11 @@ export default function AttractionDetail() {
     facebook?: string;
     email?: string;
     openingHours?: string;
+    description?: string;
+    rating?: number;
+    entranceFee?: number;
+    reviewCount?: number;
+    favoriteKey?: string;
   } | null;
 
   const attractionData: Record<string, any> = {
@@ -212,7 +232,7 @@ export default function AttractionDetail() {
         ...(!id?.startsWith('place-') ? savedAttraction : {}),
         title: locationState.title,
         images: id === '3' ? exactImages : exactImages.length ? exactImages : savedAttraction.images,
-        description: id?.startsWith('place-') ? livePlaceDescription : savedAttraction.description,
+        description: locationState.description || (id?.startsWith('place-') ? livePlaceDescription : savedAttraction.description),
         location: locationState.location || savedAttraction.location || locationState.province || 'ประเทศไทย',
         hours: locationState.openingHours || savedAttraction.hours || '',
         phone: locationState.phone || savedAttraction.phone || '',
@@ -246,7 +266,7 @@ export default function AttractionDetail() {
     : '';
   const fullMapUrl = attraction.mapUrl || (coordinates?.lat && coordinates.lon
     ? `https://www.google.com/maps/search/?api=1&query=${coordinates.lat},${coordinates.lon}`
-    : '');
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${attraction.title} ${locationState?.province || ''}`.trim())}`);
   const [verifiedHours, setVerifiedHours] = useState('');
   const [verifiedLocation, setVerifiedLocation] = useState('');
   const [placeDetails, setPlaceDetails] = useState<{
@@ -292,21 +312,82 @@ export default function AttractionDetail() {
   }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length]);
   const [airQuality, setAirQuality] = useState<{ pm25: number; aqi: number } | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
+  const [userCoordinates, setUserCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem('favorite-attractions') || '[]');
+      return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const favoriteKey = locationState?.favoriteKey || `local-${id}`;
+  const isFavorite = favoriteIds.includes(favoriteKey);
+  const destinationDistance = userCoordinates && coordinates?.lat && coordinates.lon
+    ? distanceInKm(userCoordinates, { latitude: Number(coordinates.lat), longitude: Number(coordinates.lon) })
+    : null;
   const placeText = `${attraction.title} ${attraction.location} ${locationState?.category || ''}`.toLowerCase();
   const isSea = /ทะเล|เกาะ|ชายหาด|หาด|อ่าว|พัทยา|หัวหิน|พีพี|เต่า|beach|island/.test(placeText);
   const isWaterRelatedNature = /น้ำตก|แก่ง|ห้วย|ลำธาร|แม่น้ำ|ริมน้ำ|อ่างเก็บน้ำ|เขื่อน|waterfall|river|stream|reservoir|dam/.test(placeText);
   const isTempleOrCulture = /วัด|พระธาตุ|พระราชวัง|พิพิธภัณฑ์|เมืองเก่า|โบราณสถาน|temple|palace|museum|heritage/.test(placeText);
   const isNature = /อุทยาน|ภูเขา|ดอย|ป่า|เขา|ธรรมชาติ|national park|mountain|forest|nature/.test(placeText);
-  const travelTips = isSea
-    ? ['ตรวจสอบรอบเรือและสภาพทะเลก่อนออกเดินทาง', 'พกครีมกันแดด หมวก และน้ำดื่มให้เพียงพอ', 'สวมเสื้อชูชีพและปฏิบัติตามคำแนะนำของเจ้าหน้าที่']
+  const descriptionHighlights = attraction.description
+    .split(/[.!?。\n;；]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const destinationHighlights = (descriptionHighlights.length > 1
+    ? descriptionHighlights
+    : attraction.description.split(/[,，]/).map((item) => item.trim()).filter(Boolean))
+    .slice(0, 4);
+  const activityOptions = [
+    ['ดำน้ำ', /ดำน้ำ|ดำน้ำตื้น|ดำน้ำลึก/],
+    ['ล่องเรือ', /ล่องเรือ|นั่งเรือ|เดินทางทางเรือ/],
+    ['เล่นน้ำ', /เล่นน้ำ|ว่ายน้ำ|น้ำทะเล|น้ำตก/],
+    ['เดินป่า', /เดินป่า|เดินเขา|เส้นทางเดิน/],
+    ['ชมธรรมชาติ', /ธรรมชาติ|ป่า|น้ำตก|ภูเขา|ดอย/],
+    ['ไหว้พระ', /วัด|พระธาตุ|พระพุทธ/],
+    ['ชมสถาปัตยกรรม', /สถาปัตยกรรม|เจดีย์|โบราณสถาน/],
+    ['ถ่ายภาพ', /ถ่ายภาพ|ถ่ายรูป|จุดชมวิว|ทิวทัศน์/],
+  ] as const;
+  const destinationActivities = activityOptions
+    .filter(([, pattern]) => pattern.test(`${attraction.title} ${attraction.description}`))
+    .map(([activity]) => activity);
+  const estimatedCost = typeof locationState?.entranceFee === 'number'
+    ? (locationState.entranceFee === 0 ? 'ไม่มีค่าเข้า' : `${locationState.entranceFee.toLocaleString('th-TH')} บาท`)
+    : 'ไม่มีข้อมูลค่าใช้จ่ายจากแหล่งข้อมูล';
+  const recommendedTime = 'ไม่มีข้อมูลช่วงเวลาที่แนะนำจากแหล่งข้อมูล';
+  const destinationProvince = getProvince(
+    attraction.location || formatAddress(detailedAddress) || verifiedLocation,
+    locationState?.province,
+  );
+  const highlightIcons = isSea
+    ? [Waves, Ship, Camera]
     : isWaterRelatedNature
-      ? ['สวมรองเท้ากันลื่นและหลีกเลี่ยงการเข้าใกล้กระแสน้ำเชี่ยว', 'ตรวจสอบฝนและประกาศเตือนภัยก่อนเดินทาง', 'เตรียมเสื้อผ้าสำรองและเก็บอุปกรณ์ให้กันน้ำ']
+      ? [Droplets, Leaf, Camera]
       : isTempleOrCulture
-        ? ['แต่งกายสุภาพและปฏิบัติตามกฎของสถานที่', 'ไปช่วงเช้าหรือช่วงเย็นเพื่อหลีกเลี่ยงอากาศร้อน', 'ตรวจสอบเวลาเปิด-ปิดและวันหยุดก่อนเดินทาง']
+        ? [Landmark, Sparkles, Camera]
         : isNature
-          ? ['ตรวจสอบเส้นทางและประกาศของอุทยานก่อนเดินทาง', 'เตรียมรองเท้าที่เหมาะกับเส้นทางและยากันแมลง', 'พกน้ำดื่มและช่วยกันรักษาความสะอาดของธรรมชาติ']
-          : ['ตรวจสอบเวลาเปิด-ปิดและการเดินทางก่อนออกจากที่พัก', 'พกน้ำดื่มและเตรียมอุปกรณ์ให้เหมาะกับสภาพอากาศ', 'เคารพชุมชนและช่วยกันรักษาความสะอาดของสถานที่'];
+          ? [Leaf, Sunrise, Camera]
+          : [Sparkles, MapPin, Camera];
+  const travelKnow = [
+    displayHours ? `เวลาเปิด-ปิด: ${displayHours}` : '',
+    locationState?.phone || placeDetails.phone ? `โทรสอบถาม: ${placeDetails.phone || locationState?.phone}` : '',
+    locationState?.website ? `เว็บไซต์: ${locationState.website}` : '',
+  ].filter(Boolean);
   const [marine, setMarine] = useState<{ wind: number; wave: number } | null>(null);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => setUserCoordinates({ latitude: coords.latitude, longitude: coords.longitude }),
+      () => setUserCoordinates(null),
+      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 10 * 1000 },
+    );
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('favorite-attractions', JSON.stringify(favoriteIds));
+  }, [favoriteIds]);
 
   useEffect(() => {
     if (!coordinates?.lat || !coordinates.lon) return;
@@ -411,6 +492,14 @@ export default function AttractionDetail() {
       ? 'bg-red-500'
       : 'bg-yellow-400';
   const airStatusText = airLevel === 'safe' ? 'อยู่ในระดับดี' : airLevel === 'danger' ? 'อยู่ในระดับอันตราย' : 'อยู่ในระดับปานกลาง';
+  const travelStatus = !weather
+    ? { label: 'กำลังตรวจสอบสภาพอากาศ', style: 'border-slate-200 bg-slate-50 text-slate-700', icon: Cloud }
+    : weather.condition === 'thunderstorm' || airLevel === 'danger'
+      ? { label: 'ไม่แนะนำ', style: 'border-red-200 bg-red-50 text-red-800', icon: AlertTriangle }
+      : weather.condition === 'rain' || weather.currentRain > 0 || weather.rain[0] > 50 || airLevel === 'moderate'
+        ? { label: 'ควรระวัง', style: 'border-amber-200 bg-amber-50 text-amber-800', icon: AlertTriangle }
+        : { label: 'เหมาะเที่ยว', style: 'border-emerald-200 bg-emerald-50 text-emerald-800', icon: Cloud };
+  const TravelStatusIcon = travelStatus.icon;
   return (
     <div className="min-h-screen bg-[#F5F6FA]">
       <div className="mx-auto w-full max-w-[480px] lg:max-w-[1200px] min-h-screen bg-white lg:shadow-xl">
@@ -445,25 +534,136 @@ export default function AttractionDetail() {
             )}
           </div>
 
-          {/* Description Card */}
-          <div className="bg-[#1F2E7A] text-white rounded-2xl p-4 mb-4">
-            <h3 className="font-semibold mb-2">รายละเอียด</h3>
-            <p className="text-sm leading-relaxed opacity-90">
-              {attraction.description}
-            </p>
-          </div>
+          {/* Travel Information Card */}
+          <section className="mb-4 overflow-hidden rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-7">
+            <div className="mb-6">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-[#1F2E7A]">
+                  {locationState?.category || placeDetails.category || 'สถานที่ท่องเที่ยว'}
+                </span>
+                <span className="flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                  <MapPin className="h-3.5 w-3.5" />
+                  {destinationProvince}
+                </span>
+              </div>
+              <h2 className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl">{attraction.title}</h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-base">{attraction.description}</p>
+            </div>
 
-          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 mb-4">
-            <h3 className="font-semibold text-[#1F2E7A] mb-3">คำแนะนำสำหรับเที่ยวที่นี่</h3>
-            <ul className="space-y-2 text-sm text-gray-700">
-              {travelTips.map((tip) => (
-                <li key={tip} className="flex items-start gap-2">
-                  <span className="mt-0.5 text-blue-600">✓</span>
-                  <span>{tip}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+            <div className="mb-6">
+              <h3 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1F2E7A]">
+                <Sparkles className="h-4 w-4 text-amber-500" />
+                จุดเด่น
+              </h3>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {destinationHighlights.map((highlight, index) => {
+                  const HighlightIcon = highlightIcons[index];
+                  return (
+                    <li key={highlight} className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+                      <span className="rounded-xl bg-blue-50 p-2 text-[#1F2E7A]">
+                        <HighlightIcon className="h-4 w-4" />
+                      </span>
+                      <span className="pt-1 text-sm leading-relaxed text-slate-700">{highlight}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="rounded-2xl border border-slate-100 p-3">
+                <div className="mb-2 flex items-center gap-2 text-amber-600">
+                  <Star className="h-4 w-4 fill-current" />
+                  <span className="text-xs font-medium text-slate-500">คะแนนรีวิว</span>
+                </div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {typeof locationState?.rating === 'number'
+                    ? `${locationState.rating.toFixed(1)} / 5${locationState.reviewCount !== undefined ? ` (${locationState.reviewCount.toLocaleString('th-TH')} รีวิว)` : ''}`
+                    : 'ยังไม่มีข้อมูล'}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 p-3">
+                <div className="mb-2 flex items-center gap-2 text-[#1F2E7A]">
+                  <Sunrise className="h-4 w-4" />
+                  <span className="text-xs font-medium text-slate-500">ช่วงเวลาที่แนะนำ</span>
+                </div>
+                <p className="text-sm font-semibold leading-relaxed text-slate-800">{recommendedTime}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 p-3">
+                <div className="mb-2 flex items-center gap-2 text-emerald-700">
+                  <Banknote className="h-4 w-4" />
+                  <span className="text-xs font-medium text-slate-500">ค่าใช้จ่ายโดยประมาณ</span>
+                </div>
+                <p className="text-sm font-semibold leading-relaxed text-slate-800">{estimatedCost}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 p-3">
+                <div className="mb-2 flex items-center gap-2 text-[#1F2E7A]">
+                  <MapPin className="h-4 w-4" />
+                  <span className="text-xs font-medium text-slate-500">จังหวัด</span>
+                </div>
+                <p className="text-sm font-semibold text-slate-800">{destinationProvince}</p>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-base font-bold text-[#1F2E7A]">กิจกรรมที่น่าสนใจ</h3>
+              <div className="flex flex-wrap gap-2">
+                {destinationActivities.map((activity) => (
+                  <span key={activity} className="rounded-full bg-blue-50 px-3 py-2 text-xs font-medium text-[#1F2E7A] sm:text-sm">
+                    {activity}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-2">
+              <div>
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-[#1F2E7A]">
+                  <Navigation className="h-4 w-4" />
+                  ข้อมูลสำหรับการเดินทาง
+                </h3>
+                <p className="text-sm leading-relaxed text-slate-600">
+                  วิธีเดินทางและเวลาเดินทางขึ้นอยู่กับจุดเริ่มต้น กรุณาเปิดแผนที่เพื่อคำนวณเส้นทางล่าสุด
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  เวลาเปิด-ปิด: {displayHours || 'ไม่มีข้อมูลจากแหล่งข้อมูล'}
+                </p>
+                {fullMapUrl && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <a href={fullMapUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-[#1F2E7A] hover:bg-blue-100">
+                      <MapPin className="h-4 w-4" />
+                      ดูบนแผนที่
+                    </a>
+                    <a
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(coordinates?.lat && coordinates.lon ? `${coordinates.lat},${coordinates.lon}` : `${attraction.title} ${destinationProvince}`)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#1F2E7A] px-3 py-2 text-xs font-semibold text-white hover:bg-[#162056]"
+                    >
+                      <Navigation className="h-4 w-4" />
+                      นำทาง
+                    </a>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-[#1F2E7A]">
+                    <Lightbulb className="h-4 w-4 text-amber-500" />
+                    สิ่งที่ควรรู้
+                  </h3>
+                  <p className="text-sm leading-relaxed text-slate-600">{travelKnow}</p>
+                </div>
+                <div>
+                  <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-[#1F2E7A]">
+                    <ShieldAlert className="h-4 w-4 text-orange-500" />
+                    ข้อควรระวัง
+                  </h3>
+                  <p className="text-sm leading-relaxed text-slate-600">{travelCaution}</p>
+                </div>
+              </div>
+            </div>
+          </section>
 
           {/* Location Info */}
           <div className="bg-white rounded-2xl shadow-md p-4 mb-4 space-y-3">
