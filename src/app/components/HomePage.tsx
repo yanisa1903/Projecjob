@@ -637,6 +637,7 @@ export default function HomePage() {
     reviewCount: place.reviewCount,
     entranceFee: place.entranceFee,
     openingHours: place.openingHours,
+    travelCaution: place.travelCaution,
     suitableFor: place.suitableFor || [],
     createdAt: place.createdAt,
   }));
@@ -1185,7 +1186,7 @@ export default function HomePage() {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {displayedAttractions.slice(0, 4).map((attraction) => (
                 <article key={attraction.key} className="overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg">
-                  <Link to={`/attraction/${attraction.id}`} state={{ title: attraction.title, location: attraction.location, province: attraction.province, category: attraction.category, description: attraction.description, rating: attraction.rating, images: attraction.images, lat: attraction.latitude !== undefined ? String(attraction.latitude) : undefined, lon: attraction.longitude !== undefined ? String(attraction.longitude) : undefined, openingHours: attraction.openingHours, entranceFee: attraction.entranceFee, reviewCount: attraction.reviewCount, favoriteKey: attraction.key }} className="block">
+                  <Link to={`/attraction/${attraction.id}`} state={{ title: attraction.title, location: attraction.location, province: attraction.province, category: attraction.category, description: attraction.description, rating: attraction.rating, images: attraction.images, lat: attraction.latitude !== undefined ? String(attraction.latitude) : undefined, lon: attraction.longitude !== undefined ? String(attraction.longitude) : undefined, openingHours: attraction.openingHours, entranceFee: attraction.entranceFee, reviewCount: attraction.reviewCount, travelCaution: attraction.travelCaution, favoriteKey: attraction.key }} className="block">
                     <div className="relative">
                       <img src={attraction.images[0]} alt={attraction.title} className="h-28 w-full object-cover sm:h-36" />
                       <button

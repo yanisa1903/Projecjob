@@ -101,6 +101,7 @@ export default function AttractionDetail() {
     rating?: number;
     entranceFee?: number;
     reviewCount?: number;
+    travelCaution?: string;
     favoriteKey?: string;
   } | null;
 
@@ -234,6 +235,7 @@ export default function AttractionDetail() {
         images: id === '3' ? exactImages : exactImages.length ? exactImages : savedAttraction.images,
         description: locationState.description || (id?.startsWith('place-') ? livePlaceDescription : savedAttraction.description),
         location: locationState.location || savedAttraction.location || locationState.province || 'ประเทศไทย',
+        travelCaution: locationState.travelCaution || savedAttraction.travelCaution || '',
         hours: locationState.openingHours || savedAttraction.hours || '',
         phone: locationState.phone || savedAttraction.phone || '',
         facebook: locationState.facebook || '',
@@ -374,6 +376,7 @@ export default function AttractionDetail() {
     locationState?.phone || placeDetails.phone ? `โทรสอบถาม: ${placeDetails.phone || locationState?.phone}` : '',
     locationState?.website ? `เว็บไซต์: ${locationState.website}` : '',
   ].filter(Boolean);
+  const travelCaution = locationState?.travelCaution || attraction.travelCaution || 'ไม่มีข้อมูลข้อควรระวัง';
   const [marine, setMarine] = useState<{ wind: number; wave: number } | null>(null);
 
   useEffect(() => {
@@ -502,9 +505,9 @@ export default function AttractionDetail() {
   const TravelStatusIcon = travelStatus.icon;
   return (
     <div className="min-h-screen bg-[#F5F6FA]">
-      <div className="mx-auto w-full max-w-[480px] lg:max-w-[1200px] min-h-screen bg-white lg:shadow-xl">
+      <div className="app-shell shadow-xl lg:shadow-none">
         {/* Header */}
-        <div className="bg-white pt-12 pb-4 px-4 shadow-sm sticky top-0 z-10">
+        <div className="sticky top-0 z-10 bg-white px-4 pb-4 pt-12 shadow-sm sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <a href="/" className="p-2 -ml-2" aria-label="ย้อนกลับ">
               <ArrowLeft className="w-6 h-6 text-[#1F2E7A]" />
@@ -514,7 +517,7 @@ export default function AttractionDetail() {
         </div>
 
         {/* Content */}
-        <div className="px-4 py-4">
+        <div className="app-content">
           {/* Title */}
           <h2 className="text-2xl font-bold text-[#1F2E7A] mb-4">{attraction.title}</h2>
 

@@ -12,6 +12,7 @@ export type TatAttraction = {
   reviewCount?: number;
   entranceFee?: number;
   openingHours?: string;
+  travelCaution?: string;
   suitableFor?: string[];
   createdAt?: string;
 };
@@ -96,6 +97,7 @@ function toAttraction(record: TatRecord): TatAttraction | null {
     reviewCount: firstNumber(record, ['review_count', 'reviews_count', 'number_of_reviews']),
     entranceFee: firstNumber(record, ['entrance_fee', 'admission_fee', 'ticket_price']),
     openingHours: firstString(record, ['opening_hours', 'openingHours', 'open_time']),
+    travelCaution: firstString(record, ['travel_caution', 'travelCaution', 'caution', 'warning', 'safety_tips']),
     suitableFor: Array.isArray(record.suitable_for)
       ? record.suitable_for.filter((value): value is string => typeof value === 'string')
       : Array.isArray(record.tags)
