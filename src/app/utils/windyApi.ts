@@ -8,6 +8,8 @@ export type WindyWeather = {
   updatedAt: string;
   condition: 'clear' | 'cloudy' | 'rain' | 'thunderstorm';
   isNight: boolean;
+  weatherCode?: number | null;
+  isDay?: number | null;
 };
 
 type WindyForecast = {
@@ -87,6 +89,8 @@ export async function fetchWindyWeather(latitude: string | number, longitude: st
     updatedAt: new Date().toISOString(),
     condition: conditionFromWeatherCode(undefined, precipitation[0] || 0, cloudCover, cape),
     isNight: new Date().getHours() < 6 || new Date().getHours() >= 18,
+    weatherCode: null,
+    isDay: new Date().getHours() < 6 || new Date().getHours() >= 18 ? 0 : 1,
   };
 }
 
@@ -114,6 +118,8 @@ async function fetchPublicWeather(latitude: string | number, longitude: string |
     updatedAt: data.current?.time || new Date().toISOString(),
     condition: conditionFromWeatherCode(data.current?.weather_code, data.current?.precipitation || 0),
     isNight: data.current?.is_day === 0,
+    weatherCode: typeof data.current?.weather_code === 'number' ? data.current.weather_code : null,
+    isDay: typeof data.current?.is_day === 'number' ? data.current.is_day : null,
   };
 }
 
@@ -156,6 +162,8 @@ async function fetchTmdWeather(latitude: string | number, longitude: string | nu
     updatedAt: new Date().toISOString(),
     condition,
     isNight: new Date().getHours() < 6 || new Date().getHours() >= 18,
+    weatherCode: null,
+    isDay: new Date().getHours() < 6 || new Date().getHours() >= 18 ? 0 : 1,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import { format } from 'date-fns';
@@ -11,15 +11,24 @@ interface DatePickerProps {
   selected?: Date;
   onSelect: (date: Date | undefined) => void;
   minDate?: Date;
+  disabled?: boolean;
 }
 
-export default function DatePicker({ placeholder, selected, onSelect, minDate }: DatePickerProps) {
+export default function DatePicker({ placeholder, selected, onSelect, minDate, disabled = false }: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root open={open && !disabled} onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}>
       <Popover.Trigger asChild>
-        <button className="w-full min-h-11 text-left pl-3 pr-8 py-2.5 bg-gray-100 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#1F2E7A] relative">
+        <button
+          type="button"
+          disabled={disabled}
+          className="w-full min-h-11 text-left pl-3 pr-8 py-2.5 bg-gray-100 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#1F2E7A] relative disabled:cursor-not-allowed disabled:opacity-60"
+        >
           {selected ? format(selected, 'd MMM yyyy', { locale: th }) : placeholder}
           <CalendarIcon className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         </button>
@@ -123,7 +132,9 @@ export default function DatePicker({ placeholder, selected, onSelect, minDate }:
               onSelect(date);
               setOpen(false);
             }}
-            disabled={minDate ? { before: minDate } : undefined}
+            disabled={minDate
+              ? { before: new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()) }
+              : undefined}
             locale={th}
             defaultMonth={selected || minDate || new Date()}
           />

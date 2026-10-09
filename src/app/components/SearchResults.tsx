@@ -1,156 +1,88 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router';
-import { ArrowLeft, Search, MapPin, Loader2, ExternalLink } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { ArrowLeft, ExternalLink, MapPin, Search } from 'lucide-react';
+import { PlaceSearchBox } from './PlaceSearchBox';
+import DatePicker from './DatePicker';
+import { THAI_PROVINCES } from '../data/provinces';
+import type { PlaceSearchOption } from '../hooks/usePlaceSearch';
+import { useUserCoordinates } from '../context/UserLocationContext';
+import {
+  getCategoryOsmTag,
+  getPlacePhotoUrl,
+  searchPlaces,
+  type PlaceDetails,
+  type PlaceSearchResult,
+} from '../services/placesApi';
 
-type PlaceResult = {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
-  category: string;
-  image?: string;
-  images?: string[];
-  phone?: string;
-  website?: string;
-  facebook?: string;
-  email?: string;
-  openingHours?: string;
-  extratags?: { phone?: string; website?: string; facebook?: string; 'contact:facebook'?: string; email?: string; opening_hours?: string };
-  address?: {
-    city?: string;
-    town?: string;
-    village?: string;
-    province?: string;
-    state?: string;
+function parseTripDate(value: string | null): Date | undefined {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return undefined;
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function formatTripDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function distanceInKm(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) {
+  const radians = (value: number) => (value * Math.PI) / 180;
+  const latitudeDelta = radians(to.latitude - from.latitude);
+  const longitudeDelta = radians(to.longitude - from.longitude);
+  const arc = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(from.latitude)) * Math.cos(radians(to.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
+function categoryLabel(types: string[] = []) {
+  if (types.some((type) => /beach|island/i.test(type))) return 'ทะเล';
+  if (types.some((type) => /temple|church|mosque/i.test(type))) return 'วัด';
+  if (types.some((type) => /park|national_park/i.test(type))) return 'อุทยาน';
+  if (types.some((type) => /museum/i.test(type))) return 'พิพิธภัณฑ์';
+  if (types.some((type) => /cafe/i.test(type))) return 'คาเฟ่';
+  return 'สถานที่ท่องเที่ยว';
+}
+
+function toPlaceState(place: PlaceDetails | PlaceSearchResult) {
+  const address = place.address || place.name;
+  const province = THAI_PROVINCES.find((item) => address.includes(item)) || 'ประเทศไทย';
+  const images = 'photos' in place
+    ? place.photos.map((photo) => getPlacePhotoUrl(photo)).filter((url): url is string => Boolean(url))
+    : [getPlacePhotoUrl(place.photoName)].filter((url): url is string => Boolean(url));
+  const category = categoryLabel(place.types);
+  return {
+    placeId: place.id,
+    title: place.name,
+    location: address,
+    province,
+    mapUrl: 'googleMapsUri' in place ? place.googleMapsUri : undefined,
+    category,
+    image: images[0],
+    images,
+    lat: place.latitude === undefined ? undefined : String(place.latitude),
+    lon: place.longitude === undefined ? undefined : String(place.longitude),
+    rating: place.rating,
+    reviewCount: place.userRatingCount,
+    favoriteKey: `osm-${place.id}`,
   };
-};
-
-async function searchOpenStreetMapNames(query: string, signal: AbortSignal): Promise<PlaceResult[]> {
-  const escapedQuery = query.trim().replace(/[\\"']/g, '');
-  const overpassQuery = `[out:json][timeout:20];area["ISO3166-1"="TH"][admin_level=2]->.th;(nwr["name"~"${escapedQuery}",i](area.th););out center tags;`;
-  const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`, { signal });
-  if (!response.ok) return [];
-  const data = (await response.json()) as {
-    elements?: Array<{
-      id: number;
-      type: string;
-      lat?: number;
-      lon?: number;
-      center?: { lat: number; lon: number };
-      tags?: { name?: string; amenity?: string; tourism?: string; shop?: string; phone?: string; website?: string; email?: string };
-    }>;
-  };
-  return (data.elements || [])
-    .filter((element) => element.tags?.name && (element.lat || element.center?.lat) && (element.lon || element.center?.lon))
-    .slice(0, 50)
-    .map((element) => ({
-      place_id: element.id,
-      display_name: element.tags?.name || query,
-      lat: String(element.lat ?? element.center?.lat),
-      lon: String(element.lon ?? element.center?.lon),
-      category: element.tags?.amenity || element.tags?.tourism || element.tags?.shop || 'สถานที่',
-      phone: element.tags?.phone,
-      website: element.tags?.website,
-      email: element.tags?.email,
-    }));
-}
-
-async function searchPhoton(query: string, signal: AbortSignal): Promise<PlaceResult[]> {
-  const response = await fetch(
-    `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=th&limit=50`,
-    { signal },
-  );
-  if (!response.ok) return [];
-  const data = (await response.json()) as {
-    features?: Array<{
-      geometry?: { coordinates?: [number, number] };
-      properties?: { name?: string; countrycode?: string; city?: string; state?: string; type?: string };
-    }>;
-  };
-  return (data.features || [])
-    .filter((feature) => feature.properties?.countrycode === 'TH' && feature.geometry?.coordinates?.length === 2)
-    .map((feature, index) => {
-      const [longitude, latitude] = feature.geometry!.coordinates!;
-      const properties = feature.properties || {};
-      return {
-        place_id: -index - 1,
-        display_name: [properties.name, properties.city, properties.state].filter(Boolean).join(', '),
-        lat: String(latitude),
-        lon: String(longitude),
-        category: properties.type || 'สถานที่',
-      };
-    });
-}
-
-const popularSearches = ['ร้านอาหาร', 'โรงพยาบาล', 'โรงเรียน', 'โรงแรม', 'ห้างสรรพสินค้า', 'สถานีรถไฟ', 'ปั๊มน้ำมัน', 'ตลาด'];
-
-function getLocation(place: PlaceResult) {
-  const address = place.address;
-  return address?.province || address?.state || address?.city || address?.town || address?.village || 'ประเทศไทย';
-}
-
-function getDetailedAddress(place: PlaceResult) {
-  const address = place.address;
-  if (!address) return place.display_name;
-  return [
-    address.house_number && `เลขที่ ${address.house_number}`,
-    address.road && (address.road.startsWith('ถนน') ? address.road : `ถนน${address.road}`),
-    address.neighbourhood && `หมู่บ้าน${address.neighbourhood}`,
-    address.village && `หมู่ ${address.village}`,
-    address.suburb && `ตำบล/แขวง ${address.suburb}`,
-    address.city_district && `อำเภอ/เขต ${address.city_district}`,
-    address.county && !address.city_district && `อำเภอ ${address.county}`,
-    address.state && `จังหวัด${address.state}`,
-    address.postcode && `รหัสไปรษณีย์ ${address.postcode}`,
-  ].filter(Boolean).join(' ') || place.display_name;
-}
-
-function getPlaceTitle(place: PlaceResult) {
-  return place.display_name.split(',')[0].trim() || 'สถานที่ไม่ระบุชื่อ';
-}
-
-function getMapUrl(place: PlaceResult) {
-  return `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lon}`;
-}
-
-async function getPlaceImages(title: string, category: string, latitude: string, longitude: string) {
-  try {
-    const wikipediaResponse = await fetch(
-      `https://th.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
-    );
-    let wikipediaImage = '';
-    if (wikipediaResponse.ok) {
-      const wikipediaData = (await wikipediaResponse.json()) as {
-        originalimage?: { source?: string };
-        thumbnail?: { source?: string };
-      };
-      wikipediaImage = wikipediaData.originalimage?.source || wikipediaData.thumbnail?.source || '';
-    }
-
-    const nearbyResponse = await fetch(
-      `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(title)}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url&iiurlwidth=900&format=json&origin=*`,
-    );
-    if (!nearbyResponse.ok) return wikipediaImage ? [wikipediaImage] : [];
-    const data = (await nearbyResponse.json()) as {
-      query?: { pages?: Record<string, { imageinfo?: Array<{ thumburl?: string; url?: string }> }> };
-    };
-    const nearbyImages = Object.values(data.query?.pages || {})
-      .map((page) => page.imageinfo?.[0]?.thumburl || page.imageinfo?.[0]?.url || '')
-      .filter(Boolean);
-    return [...new Set([wikipediaImage, ...nearbyImages].filter(Boolean))].slice(0, 3);
-  } catch {
-    return [];
-  }
 }
 
 export default function SearchResults() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const query = searchParams.get('q') || '';
+  const mode = searchParams.get('mode') || 'text';
+  const province = searchParams.get('province') || '';
+  const category = searchParams.get('category') || '';
+  const [departureDate, setDepartureDate] = useState<Date | undefined>(() => parseTripDate(searchParams.get('departureDate')));
+  const [returnDate, setReturnDate] = useState<Date | undefined>(() => parseTripDate(searchParams.get('returnDate')));
   const [searchInput, setSearchInput] = useState(query);
-  const [places, setPlaces] = useState<PlaceResult[]>([]);
+  const [places, setPlaces] = useState<PlaceSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => setSearchInput(query), [query]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -158,200 +90,190 @@ export default function SearchResults() {
       setError('');
       return;
     }
-
     const controller = new AbortController();
     setIsLoading(true);
     setError('');
-
-    const normalizedQuery = query.trim().replace(/เกตุ่น/g, 'เกตุน').replace(/\s+/g, ' ');
-    const withoutTypePrefix = normalizedQuery.replace(/^(โรงเรียน|รพ\.|โรงพยาบาล|ร้าน|วัด)\s*/i, '').trim();
-    const searchVariants = [...new Set([
-      query.trim(),
-      normalizedQuery,
-      withoutTypePrefix,
-      `${query.trim()}, ประเทศไทย`,
-      `${withoutTypePrefix}, ประเทศไทย`,
-    ].filter(Boolean))];
-    const fetchVariant = async (searchTerm: string) => {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=50&countrycodes=th&accept-language=th&q=${encodeURIComponent(searchTerm)}`,
-        { signal: controller.signal, headers: { Accept: 'application/json' } },
-      );
-      if (!response.ok) throw new Error('search-failed');
-      return response.json() as Promise<PlaceResult[]>;
-    };
-
-    Promise.allSettled(searchVariants.map(fetchVariant))
-      .then(async (settledResults) => {
-        const resultSets = settledResults
-          .filter((result): result is PromiseFulfilledResult<PlaceResult[]> => result.status === 'fulfilled')
-          .map((result) => result.value);
-        let results = [...new Map(resultSets.flat().map((place) => [place.place_id, place])).values()];
-        if (results.length === 0) results = await searchOpenStreetMapNames(query, controller.signal);
-        if (results.length === 0) results = await searchPhoton(query, controller.signal);
-        const placesWithImages = await Promise.all(
-          results.map(async (place) => {
-            const images = await getPlaceImages(place.display_name.split(',')[0], place.category, place.lat, place.lon);
-            return {
-              ...place,
-              phone: place.phone || place.extratags?.phone,
-              website: place.website || place.extratags?.website,
-              facebook: place.facebook || place.extratags?.facebook || place.extratags?.['contact:facebook'] || (place.website?.includes('facebook.com') ? place.website : undefined),
-              email: place.email || place.extratags?.email,
-              openingHours: place.openingHours || place.extratags?.opening_hours,
-              image: images[0],
-              images,
-            };
-          }),
-        );
-        setPlaces(placesWithImages);
+    const searchTerm = mode === 'province'
+      ? province || query
+      : mode === 'category'
+        ? category || query
+        : query;
+    searchPlaces(searchTerm, controller.signal, {
+      osmTag: mode === 'province' ? 'tourism:attraction' : mode === 'category' ? getCategoryOsmTag(category || query) : undefined,
+    })
+      .then((results) => {
+        if (!controller.signal.aborted) setPlaces(results);
       })
-      .catch((requestError: Error) => {
-        if (requestError.name !== 'AbortError') setError('ไม่สามารถเชื่อมต่อบริการค้นหาได้ กรุณาลองใหม่อีกครั้ง');
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(cause instanceof Error ? cause.message : 'ไม่สามารถเชื่อมต่อบริการค้นหาได้');
       })
-      .finally(() => setIsLoading(false));
-
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
     return () => controller.abort();
-  }, [query]);
+  }, [category, mode, province, query]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchInput.trim()) {
-      navigate(`/search?q=${encodeURIComponent(searchInput.trim())}`);
-    }
+  const goToSearch = (value: string, nextMode = 'text', selection?: PlaceSearchOption) => {
+    const params = new URLSearchParams({ q: value, mode: nextMode });
+    if (selection?.kind === 'province') params.set('province', selection.label);
+    if (selection?.kind === 'category') params.set('category', selection.label);
+    if (departureDate) params.set('departureDate', formatTripDate(departureDate));
+    if (returnDate) params.set('returnDate', formatTripDate(returnDate));
+    navigate(`/search?${params.toString()}`);
   };
+
+  const selectPlace = async (place: PlaceDetails) => {
+    const params = new URLSearchParams({ q: place.name });
+    if (place.latitude !== undefined) params.set('lat', String(place.latitude));
+    if (place.longitude !== undefined) params.set('lon', String(place.longitude));
+    if (departureDate) params.set('departureDate', formatTripDate(departureDate));
+    if (returnDate) params.set('returnDate', formatTripDate(returnDate));
+    navigate(`/place/${encodeURIComponent(place.id)}?${params.toString()}`, {
+      state: {
+        ...toPlaceState(place),
+        departureDate: departureDate ? formatTripDate(departureDate) : undefined,
+        returnDate: returnDate ? formatTripDate(returnDate) : undefined,
+      },
+    });
+  };
+
+  const selectResult = async (placeId: string) => {
+    const place = places.find((item) => item.id === placeId);
+    if (place) selectPlace({ ...place, photos: [] });
+  };
+  const userCoordinates = useUserCoordinates();
 
   return (
     <div className="min-h-screen bg-sky-50">
       <div className="app-shell shadow-xl lg:shadow-none">
-        {/* Header */}
         <div className="sticky top-0 z-10 border-b border-sky-100 bg-gradient-to-br from-white via-sky-50 to-blue-50 px-4 pb-5 pt-12 shadow-sm md:pt-6">
-          <div className="flex items-center gap-3 mb-4">
-            <a href="/" className="p-2 -ml-2" aria-label="ย้อนกลับ">
-              <ArrowLeft className="w-6 h-6 text-[#1F2E7A]" />
-            </a>
+          <div className="mb-4 flex items-center gap-3">
+            <button type="button" onClick={() => navigate(-1)} className="-ml-2 p-2" aria-label="ย้อนกลับ">
+              <ArrowLeft className="h-6 w-6 text-[#1F2E7A]" />
+            </button>
             <h1 className="font-semibold text-[#1F2E7A]">Thailand</h1>
           </div>
-
-          {/* Search Bar */}
-          <form onSubmit={handleSearch} className="relative">
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="ค้นหาสถานที่ใดก็ได้ในประเทศไทย"
-              className="w-full rounded-xl border border-sky-100 bg-white py-3 pl-4 pr-10 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
-            />
-            <button type="submit" className="absolute right-3 top-1/2 -translate-y-1/2">
-              <Search className="w-5 h-5 text-gray-400" />
-            </button>
-          </form>
+          <PlaceSearchBox
+            value={searchInput}
+            onChange={setSearchInput}
+            onPlaceSelect={selectPlace}
+            onExplore={(option) => goToSearch(option.label, option.kind, option)}
+            onSearch={(text) => goToSearch(text)}
+            placeholder="ค้นหาสถานที่ใดก็ได้ในประเทศไทย"
+            inputClassName="w-full rounded-xl border border-sky-100 bg-white py-3 pl-4 pr-11 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
+            searchButtonClassName="right-2 p-1 text-gray-400 hover:bg-transparent hover:text-blue-700"
+            dropdownClassName="rounded-xl"
+          />
         </div>
 
-        {/* Content */}
-        <div className="app-content">
-          {/* Results Header */}
+        <main className="app-content">
           <div className="mb-5 rounded-2xl border border-sky-100 bg-white/80 p-4 shadow-sm">
-            <h2 className="mb-1 font-semibold text-sky-950">
-              ผลการค้นหา "{query}"
-            </h2>
+            <h2 className="mb-1 font-semibold text-sky-950">ผลการค้นหา &quot;{query}&quot;</h2>
             <p className="text-sm text-sky-700">
               {isLoading ? 'กำลังค้นหา...' : `พบ ${places.length} สถานที่`}
             </p>
+            <p className="mt-1 text-xs text-slate-500">
+            © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline">OpenStreetMap contributors</a>
+            </p>
           </div>
 
-          {/* Results */}
+          <section aria-label="เลือกวันเดินทาง" className="mb-5 grid grid-cols-2 gap-3">
+            <DatePicker
+              placeholder="เลือกวันเดินทาง"
+              selected={departureDate}
+              onSelect={(date) => {
+                setDepartureDate(date);
+                if (!date || (returnDate && returnDate < date)) setReturnDate(undefined);
+              }}
+              minDate={new Date()}
+            />
+            <DatePicker
+              placeholder="เลือกวันกลับ"
+              selected={returnDate}
+              onSelect={setReturnDate}
+              disabled={!departureDate}
+              minDate={departureDate || new Date()}
+            />
+          </section>
+
           {isLoading ? (
-            <div className="flex flex-col items-center py-12 text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin mb-3 text-[#1F2E7A]" />
-              <p className="text-sm">กำลังค้นหาสถานที่ทั่วประเทศไทย</p>
-            </div>
+            <div className="py-12 text-center text-sm text-gray-500" role="status">กำลังค้นหาสถานที่ทั่วประเทศไทย...</div>
           ) : error ? (
-            <div className="text-center py-12">
-              <p className="text-sm text-red-600 mb-3">{error}</p>
-              <button onClick={() => navigate(`/search?q=${encodeURIComponent(query)}`)} className="text-sm font-semibold text-[#1F2E7A]">
+            <div className="py-12 text-center">
+              <p className="mb-3 text-sm text-red-600">{error}</p>
+              <button type="button" onClick={() => goToSearch(query, mode)} className="text-sm font-semibold text-[#1F2E7A]">
                 ลองค้นหาอีกครั้ง
               </button>
             </div>
           ) : places.length > 0 ? (
-            <div className="space-y-4">
-              {places.map((place) => (
-                <Link
-                  key={place.place_id}
-                  to={`/attraction/place-${place.place_id}`}
-                  state={{
-                    title: getPlaceTitle(place),
-                    location: getDetailedAddress(place),
-                    province: getLocation(place),
-                    mapUrl: getMapUrl(place),
-                    category: place.category,
-                    image: place.image,
-                    images: place.images,
-                    lat: place.lat,
-                    lon: place.lon,
-                    phone: place.phone,
-                    website: place.website,
-                    facebook: place.facebook,
-                    email: place.email,
-                    openingHours: place.openingHours,
-                  }}
-                  className="block"
-                >
-                  <div className="overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-sm transition-shadow hover:shadow-lg">
-                    <div className="h-32 bg-gradient-to-br from-sky-100 to-blue-100">
-                        <img src={place.image} alt={getPlaceTitle(place)} className="h-full w-full object-cover" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {places.map((place) => {
+                const distance = userCoordinates && place.latitude !== undefined && place.longitude !== undefined
+                  ? distanceInKm(userCoordinates, { latitude: place.latitude, longitude: place.longitude })
+                  : null;
+                return (
+                  <button
+                    key={place.id}
+                    type="button"
+                    onClick={() => void selectResult(place.id)}
+                    className="block overflow-hidden rounded-2xl border border-sky-100 bg-white text-left shadow-sm transition-shadow hover:shadow-lg"
+                  >
+                    <div className="h-40 bg-gradient-to-br from-sky-100 to-blue-100">
+                      <div className="flex h-full items-center justify-center text-sky-300"><MapPin className="h-10 w-10" /></div>
                     </div>
                     <div className="p-4">
                       <div className="flex items-start justify-between gap-3">
-                        <h3 className="mb-1 font-semibold text-sky-950">{getPlaceTitle(place)}</h3>
-                        <ExternalLink className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <h3 className="mb-1 font-semibold text-sky-950">{place.name}</h3>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-gray-400" />
                       </div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <MapPin className="w-3 h-3 text-gray-400" />
-                        <span className="text-xs text-slate-500">{place.display_name}</span>
+                      <div className="mb-2 flex items-center gap-2">
+                        <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
+                        <span className="text-xs text-slate-500">{place.address}</span>
                       </div>
-                      <div className="flex flex-wrap gap-1">
-                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-700">{place.category}</span>
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">เปิดแผนที่</span>
+                      {distance !== null && (
+                        <p className="mb-2 text-xs text-slate-500">
+                          จากคุณ {distance < 1
+                            ? `${Math.round(distance * 1000)} ม.`
+                            : `${distance.toFixed(1)} กม.`}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-700">{categoryLabel(place.types)}</span>
                       </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           ) : (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Search className="w-8 h-8 text-gray-400" />
+            <div className="py-12 text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+                <Search className="h-8 w-8 text-gray-400" />
               </div>
-              <h3 className="font-semibold text-gray-800 mb-2">ไม่พบผลการค้นหา</h3>
-              <p className="text-sm text-gray-600">
-                ลองค้นหาชื่อสถานที่ ร้านอาหาร โรงพยาบาล โรงเรียน หรือจังหวัด
-              </p>
+              <h3 className="mb-2 font-semibold text-gray-800">ไม่พบผลการค้นหา</h3>
+              <p className="text-sm text-gray-600">ลองค้นหาชื่อสถานที่ท่องเที่ยว จังหวัด หรือประเภทสถานที่</p>
             </div>
           )}
 
-          {/* Search Suggestions */}
           {!isLoading && !error && places.length === 0 && (
             <div className="mt-6">
-              <h3 className="font-semibold text-[#1F2E7A] mb-3">ค้นหาสถานที่ในประเทศไทย</h3>
+              <h3 className="mb-3 font-semibold text-[#1F2E7A]">ค้นหาสถานที่ในประเทศไทย</h3>
               <div className="flex flex-wrap gap-2">
-                {popularSearches.map((tag) => (
+                {['ทะเล', 'วัด', 'น้ำตก', 'ภูเขา', 'คาเฟ่', 'อุทยาน'].map((item) => (
                   <button
-                    key={tag}
-                    onClick={() => {
-                      setSearchInput(tag);
-                      navigate(`/search?q=${encodeURIComponent(tag)}`);
-                    }}
-                    className="rounded-full border border-sky-200 bg-white px-4 py-2 text-sm text-sky-800 shadow-sm transition-colors hover:bg-sky-100"
+                    key={item}
+                    type="button"
+                    onClick={() => goToSearch(item, 'category', { kind: 'category', id: item, label: item, subtitle: 'ประเภทสถานที่' })}
+                    className="rounded-full bg-white px-3 py-1.5 text-sm text-sky-700 shadow-sm transition hover:bg-sky-100"
                   >
-                    {tag}
+                    {item}
                   </button>
                 ))}
               </div>
             </div>
           )}
-        </div>
+        </main>
       </div>
     </div>
   );

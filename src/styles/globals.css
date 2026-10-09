@@ -31,6 +31,184 @@
 	50% { transform: translateX(-8px); }
 }
 
+@keyframes drift {
+	0%, 100% { transform: translateX(0); }
+	50% { transform: translateX(-16px); }
+}
+@keyframes fall {
+	0% { transform: translate3d(0, -14px, 0) rotate(13deg); opacity: 0; }
+	15% { opacity: .75; }
+	100% { transform: translate3d(-18px, 125px, 0) rotate(13deg); opacity: 0; }
+}
+@keyframes spin-slow {
+	to { transform: rotate(360deg); }
+}
+@keyframes twinkle {
+	0%, 100% { opacity: .25; }
+	50% { opacity: .95; }
+}
+@keyframes flash {
+	0%, 87%, 100% { opacity: 0; }
+	89%, 91% { opacity: .35; }
+	90%, 93% { opacity: .08; }
+}
+@keyframes shoot {
+	0%, 76%, 100% { opacity: 0; transform: translate3d(0, 0, 0) rotate(-25deg); }
+	78% { opacity: 1; }
+	84% { opacity: 0; transform: translate3d(-180px, 110px, 0) rotate(-25deg); }
+}
+@keyframes rise {
+	0%, 100% { transform: translateY(3px); }
+	50% { transform: translateY(-7px); }
+}
+@keyframes bob {
+	0%, 100% { transform: translateY(0); }
+	50% { transform: translateY(-5px); }
+}
+
+.weather-iphone-card {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	border: 1px solid rgb(255 255 255 / 24%);
+	border-radius: 1.25rem;
+	padding: 1.25rem;
+	box-shadow: 0 12px 32px rgb(4 44 83 / 14%);
+	transition: background .6s ease, color .6s ease, border-color .6s ease;
+}
+.weather-iphone-background {
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	overflow: hidden;
+	pointer-events: none;
+}
+.weather-iphone-content { position: relative; z-index: 1; }
+.weather-iphone-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: .5rem 1rem;
+	animation: weather-content-in .45s both;
+}
+.weather-iphone-eyebrow { margin: 0 0 .15rem; font-size: .7rem; font-weight: 700; letter-spacing: .08em; opacity: .75; text-transform: uppercase; }
+.weather-iphone-title { margin: 0; font-size: 1.05rem; font-weight: 750; }
+.weather-iphone-updated { margin: .15rem 0 0; font-size: .7rem; opacity: .75; }
+.weather-iphone-current { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(0, 1.5fr); align-items: center; gap: 1rem; padding: 1rem 0; }
+.weather-iphone-temperature { display: flex; align-items: center; gap: .65rem; animation: weather-content-in .45s 60ms both; }
+.weather-iphone-temperature > span { font-size: clamp(3.3rem, 8vw, 4.6rem); font-weight: 300; letter-spacing: -.08em; line-height: 1; font-variant-numeric: tabular-nums; }
+.weather-iphone-temperature > div { display: grid; gap: .15rem; justify-items: start; }
+.weather-iphone-current-icon { width: 1.7rem; height: 1.7rem; animation: bob 4s ease-in-out infinite; }
+.weather-iphone-temperature p { margin: 0; font-size: .78rem; font-weight: 650; }
+.weather-iphone-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.weather-iphone-stat {
+	display: flex;
+	min-height: 3.35rem;
+	align-items: center;
+	gap: .55rem;
+	border: 1px solid rgb(255 255 255 / 25%);
+	border-radius: .9rem;
+	padding: .55rem .65rem;
+	background: rgb(255 255 255 / 17%);
+	backdrop-filter: blur(12px);
+	animation: weather-content-in .45s both;
+}
+.weather-iphone-stat:nth-child(1) { animation-delay: 100ms; }
+.weather-iphone-stat:nth-child(2) { animation-delay: 160ms; }
+.weather-iphone-stat:nth-child(3) { animation-delay: 220ms; }
+.weather-iphone-stat:nth-child(4) { animation-delay: 280ms; }
+.weather-iphone-stat > svg { width: 1rem; height: 1rem; flex: 0 0 auto; opacity: .85; }
+.weather-iphone-stat > span { display: grid; gap: .1rem; font-size: .65rem; opacity: .82; }
+.weather-iphone-stat strong { font-size: .78rem; color: inherit; opacity: 1; }
+.weather-iphone-forecast { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
+.weather-iphone-day {
+	display: grid;
+	min-height: 6.25rem;
+	justify-items: center;
+	align-content: center;
+	gap: .28rem;
+	border: 1px solid rgb(255 255 255 / 25%);
+	border-radius: .9rem;
+	background: rgb(255 255 255 / 19%);
+	backdrop-filter: blur(12px);
+	animation: weather-content-in .45s both;
+}
+.weather-iphone-day > p, .weather-iphone-day > span { margin: 0; font-size: .65rem; opacity: .82; }
+.weather-iphone-day > svg { width: 1.2rem; height: 1.2rem; animation: bob 3.6s ease-in-out infinite; }
+.weather-iphone-day > strong { font-size: 1rem; }
+.weather-iphone-caution {
+	display: flex;
+	align-items: flex-start;
+	gap: .55rem;
+	margin-top: .65rem;
+	border: 1px solid rgb(255 255 255 / 24%);
+	border-radius: .9rem;
+	padding: .7rem .8rem;
+	background: rgb(255 255 255 / 17%);
+	backdrop-filter: blur(12px);
+	font-size: .72rem;
+	line-height: 1.55;
+	animation: weather-content-in .45s both;
+}
+.weather-iphone-caution > svg { width: 1rem; height: 1rem; flex: 0 0 auto; margin-top: .05rem; }
+.weather-iphone-caution > p { margin: 0; }
+.weather-iphone-sun {
+	position: absolute; top: 2.2rem; right: 2.5rem; width: 5.4rem; height: 5.4rem;
+	border-radius: 50%; background: #EF9F27; box-shadow: 0 0 0 13px rgb(239 159 39 / 11%), 0 0 42px 18px rgb(239 159 39 / 24%);
+	animation: spin-slow 50s linear infinite;
+}
+.weather-iphone-sun-glow {
+	position: absolute; top: 1.25rem; right: 1.55rem; width: 7.3rem; height: 7.3rem;
+	border: 1px solid rgb(255 255 255 / 34%); border-radius: 50%; animation: twinkle 4s ease-in-out infinite;
+}
+.weather-iphone-cloud, .weather-iphone-dark-cloud {
+	position: absolute; width: 8.5rem; height: 2.2rem; border-radius: 2rem;
+	background: var(--weather-cloud, #fff); box-shadow: 1.2rem -.8rem 0 -.1rem currentColor, 3.5rem -.3rem 0 -.45rem currentColor;
+	color: rgb(255 255 255 / 72%); opacity: .55; animation: drift 75s ease-in-out infinite;
+}
+.weather-iphone-cloud-one { top: 2.7rem; right: 10rem; }
+.weather-iphone-cloud-two { top: 6rem; right: -2rem; transform: scale(.78); animation-duration: 55s; animation-direction: reverse; }
+.weather-iphone-cloud-three { top: 1rem; right: 45%; transform: scale(.62); animation-duration: 95s; }
+.weather-iphone-dark-cloud { z-index: 1; color: #0C447C; opacity: .86; }
+.weather-theme-storm .weather-iphone-dark-cloud { color: #26215C; }
+.weather-iphone-rainfall, .weather-iphone-stars { position: absolute; inset: 0; }
+.weather-iphone-rainfall i {
+	position: absolute; width: 1px; height: 13px; border-radius: 2px; background: #E6F1FB;
+	transform: rotate(13deg); animation: fall 1.3s linear infinite;
+}
+.weather-scene-storm .weather-iphone-rainfall i { animation-duration: .8s; }
+.weather-iphone-flash {
+	position: absolute; inset: 0; display: grid; place-items: center;
+	color: #FAC775; background: #fff; opacity: 0; animation: flash 6s ease-in-out infinite;
+}
+.weather-iphone-flash > svg { width: 5rem; height: 5rem; filter: drop-shadow(0 0 12px #FAC775); }
+.weather-iphone-stars i {
+	position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #FAEEDA;
+	box-shadow: 0 0 5px rgb(250 238 218 / 75%); animation: twinkle 3s ease-in-out infinite;
+}
+.weather-iphone-moon {
+	position: absolute; top: 2rem; right: 2.7rem; width: 4.3rem; height: 4.3rem;
+	border-radius: 50%; background: #FAEEDA; box-shadow: 0 0 30px rgb(250 238 218 / 28%);
+	animation: rise 5s ease-in-out infinite;
+}
+.weather-iphone-shooting-star {
+	position: absolute; top: 10%; right: 10%; width: 95px; height: 1px;
+	background: linear-gradient(90deg, transparent, #FAEEDA); transform: rotate(-25deg);
+	animation: shoot 8s ease-in-out infinite;
+}
+@keyframes weather-content-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 560px) {
+	.weather-iphone-card { padding: 1rem; }
+	.weather-iphone-current { grid-template-columns: 1fr; gap: .8rem; padding: .9rem 0; }
+	.weather-iphone-temperature > span { font-size: 3.5rem; }
+	.weather-iphone-stat { min-height: 3rem; padding: .45rem; }
+	.weather-iphone-stat > span { font-size: .6rem; }
+	.weather-iphone-stat strong { font-size: .7rem; }
+	.weather-iphone-day { min-height: 5.8rem; }
+}
+
 .weather-sun { animation: weather-sun-glow 3.5s ease-in-out infinite; }
 .weather-rain { animation: weather-rain-fall 1.4s ease-in infinite; }
 .weather-lightning { animation: weather-lightning-flash 4s ease-in-out infinite; }
@@ -141,4 +319,9 @@
 @media (prefers-reduced-motion: reduce) {
 	.weather-sun, .weather-rain, .weather-rain-graphic, .weather-lightning, .weather-stars, .weather-cloud { animation: none; }
 	.weather-sun-graphic::before { animation: none; }
+	.weather-iphone-card, .weather-iphone-card *, .weather-iphone-card *::before, .weather-iphone-card *::after {
+		animation: none !important;
+		scroll-behavior: auto !important;
+		transition-duration: .01ms !important;
+	}
 }

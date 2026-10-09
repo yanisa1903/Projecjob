@@ -4,6 +4,7 @@ import AttractionDetail from "./components/AttractionDetail";
 import RiskAlert from "./components/RiskAlert";
 import SafeDestination from "./components/SafeDestination";
 import SearchResults from "./components/SearchResults";
+import FavoritesPage from "./components/FavoritesPage";
 
 export const router = createBrowserRouter([
   {
@@ -15,7 +16,15 @@ export const router = createBrowserRouter([
     Component: SearchResults,
   },
   {
+    path: "/favorites",
+    Component: FavoritesPage,
+  },
+  {
     path: "/attraction/:id",
+    Component: AttractionDetail,
+  },
+  {
+    path: "/place/:placeId",
     Component: AttractionDetail,
   },
   {
