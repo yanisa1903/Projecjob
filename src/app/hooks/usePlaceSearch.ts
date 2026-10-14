@@ -13,23 +13,70 @@ export type PlaceSearchOption =
       latitude?: number;
       longitude?: number;
       types?: string[];
+      province?: string;
       rating?: number;
       reviewCount?: number;
     };
 
 function normalizePlace(item: PlaceAutocompleteResult): PlaceSearchOption {
+  const rawPlaceType = item.types?.find((type) => type.includes(':'))?.split(':').at(-1)?.replaceAll('_', ' ');
+  const placeType = rawPlaceType ? PLACE_TYPE_LABELS[rawPlaceType] || rawPlaceType : undefined;
+  const location = item.province && !item.address.includes(item.province)
+    ? [item.address, item.province].filter(Boolean).join(', ')
+    : item.address;
   return {
     kind: 'place',
     id: item.placeId,
     label: item.name,
-    subtitle: item.address,
+    subtitle: [location, placeType].filter((part): part is string => Boolean(part)).join(' · '),
     latitude: item.latitude,
     longitude: item.longitude,
     types: item.types,
+    province: item.province,
     rating: item.rating,
     reviewCount: item.userRatingCount,
   };
 }
+
+const CATEGORY_ALIASES: Record<string, string[]> = {
+  'ทะเล': ['ชายหาด', 'beach', 'beaches', 'sea'],
+  'เกาะ': ['island', 'islands'],
+  'ภูเขา': ['mountain', 'mountains'],
+  'น้ำตก': ['waterfall', 'waterfalls'],
+  'จุดชมวิว': ['viewpoint', 'viewpoints', 'scenic view'],
+  'วัด': ['temple', 'temples'],
+  'อุทยาน': ['national park', 'national parks'],
+  'คาเฟ่': ['cafe', 'cafes', 'coffee shop'],
+  'ตลาด': ['market', 'markets'],
+  'พิพิธภัณฑ์': ['museum', 'museums'],
+};
+
+const PROVINCE_ALIASES: Record<string, string[]> = {
+  'กรุงเทพมหานคร': ['bangkok'],
+  'กระบี่': ['krabi'],
+  'กาญจนบุรี': ['kanchanaburi'],
+  'ชลบุรี': ['chonburi'],
+  'เชียงราย': ['chiang rai'],
+  'เชียงใหม่': ['chiang mai'],
+  'พระนครศรีอยุธยา': ['ayutthaya'],
+  'พังงา': ['phang nga'],
+  'ภูเก็ต': ['phuket'],
+  'สุราษฎร์ธานี': ['surat thani'],
+};
+
+const PLACE_TYPE_LABELS: Record<string, string> = {
+  beach: 'ชายหาด',
+  bay: 'อ่าว',
+  island: 'เกาะ',
+  waterfall: 'น้ำตก',
+  peak: 'ภูเขา / ยอดเขา',
+  mountain_range: 'แนวเทือกเขา',
+  viewpoint: 'จุดชมวิว',
+  place_of_worship: 'ศาสนสถาน',
+  cafe: 'คาเฟ่',
+  museum: 'พิพิธภัณฑ์',
+  national_park: 'อุทยานแห่งชาติ',
+};
 
 export function usePlaceSearch(query: string, isOpen: boolean) {
   const [places, setPlaces] = useState<PlaceSearchOption[]>([]);
@@ -37,10 +84,12 @@ export function usePlaceSearch(query: string, isOpen: boolean) {
   const [error, setError] = useState('');
 
   const quickOptions = useMemo<PlaceSearchOption[]>(() => {
-    const normalized = query.trim().toLocaleLowerCase('th');
+    const normalized = query.trim().toLocaleLowerCase('th').normalize('NFC');
     if (normalized.length < 2) return [];
     const provinces = THAI_PROVINCES
-      .filter((province) => province.toLocaleLowerCase('th').includes(normalized))
+      .filter((province) => [province, ...(PROVINCE_ALIASES[province] || [])]
+        .some((alias) => alias.toLocaleLowerCase('th').normalize('NFC').includes(normalized)
+          || normalized.includes(alias.toLocaleLowerCase('th').normalize('NFC'))))
       .slice(0, 5)
       .map((province) => ({
         kind: 'province' as const,
@@ -49,7 +98,9 @@ export function usePlaceSearch(query: string, isOpen: boolean) {
         subtitle: 'จังหวัด',
       }));
     const categories = PLACE_CATEGORIES
-      .filter((category) => category.toLocaleLowerCase('th').includes(normalized))
+      .filter((category) => [category, ...(CATEGORY_ALIASES[category] || [])]
+        .some((alias) => alias.toLocaleLowerCase('th').normalize('NFC').includes(normalized)
+          || normalized.includes(alias.toLocaleLowerCase('th').normalize('NFC'))))
       .slice(0, 5)
       .map((category) => ({
         kind: 'category' as const,

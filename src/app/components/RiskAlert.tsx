@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams, Link } from 'react-router';
-import { ArrowLeft, AlertTriangle, Wind, Activity, MapPin } from 'lucide-react';
+import { useLocation, useNavigate, useParams } from 'react-router';
+import { ArrowLeft, AlertTriangle, Wind, Activity } from 'lucide-react';
 import { fetchPlaceImages, uniqueImageUrls } from '../utils/placeImages';
 
 export default function RiskAlert() {
@@ -15,36 +15,6 @@ export default function RiskAlert() {
     lat?: string;
     lon?: string;
   } | null;
-
-  type NearbyPlace = {
-    id: number;
-    name: string;
-    type: string;
-    lat: number;
-    lon: number;
-    image?: string;
-  };
-
-  const getNearbyImage = async (name: string, latitude: number, longitude: number) => {
-    try {
-      const response = await fetch(`https://th.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
-      if (response.ok) {
-        const data = await response.json() as { thumbnail?: { source?: string } };
-        if (data.thumbnail?.source) return data.thumbnail.source;
-      }
-
-      const commonsQuery = `https://commons.wikimedia.org/w/api.php?action=query&generator=geosearch&ggsprimary=all&ggsnamespace=6&ggsradius=1500&ggscoord=${latitude}|${longitude}&ggslimit=1&prop=imageinfo&iiprop=url&iiurlwidth=500&format=json&origin=*`;
-      const commonsResponse = await fetch(commonsQuery);
-      if (!commonsResponse.ok) return '';
-      const commonsData = await commonsResponse.json() as {
-        query?: { pages?: Record<string, { imageinfo?: Array<{ thumburl?: string; url?: string }> }> };
-      };
-      const page = Object.values(commonsData.query?.pages || {})[0];
-      return page?.imageinfo?.[0]?.thumburl || page?.imageinfo?.[0]?.url || '';
-    } catch {
-      return '';
-    }
-  };
 
   const attractionData = {
     1: {
@@ -143,37 +113,6 @@ export default function RiskAlert() {
   const airTextStyle = airLevel === 'safe' ? 'text-green-900' : airLevel === 'moderate' ? 'text-yellow-900' : 'text-red-900';
   const airStatus = airLevel === 'safe' ? 'ปลอดภัย' : airLevel === 'moderate' ? 'ปานกลาง' : 'อันตราย';
 
-  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
-
-  useEffect(() => {
-    if (!coordinates?.lat || !coordinates.lon) return;
-
-    const controller = new AbortController();
-    const query = `[out:json][timeout:20];(nwr(around:10000,${coordinates.lat},${coordinates.lon})[name][tourism];nwr(around:10000,${coordinates.lat},${coordinates.lon})[name][historic];nwr(around:10000,${coordinates.lat},${coordinates.lon})[name][natural];nwr(around:10000,${coordinates.lat},${coordinates.lon})[name][leisure~"park|nature_reserve|garden"];);out center tags;`;
-    fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`, { signal: controller.signal })
-      .then((response) => response.json())
-      .then((data: { elements?: Array<{ id: number; type: string; lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: { name?: string; tourism?: string; historic?: string; natural?: string; leisure?: string } }> }) => {
-        const places = (data.elements || [])
-          .map((place) => ({
-            id: place.id,
-            name: place.tags?.name || '',
-            type: place.tags?.tourism || place.tags?.historic || place.tags?.natural || place.tags?.leisure || 'แหล่งท่องเที่ยว',
-            lat: place.lat ?? place.center?.lat,
-            lon: place.lon ?? place.center?.lon,
-          }))
-          .filter((place): place is NearbyPlace => Boolean(place.name && place.lat && place.lon))
-          .filter((place) => place.name !== attraction.title)
-          .slice(0, 2);
-        Promise.all(places.map(async (place) => ({ ...place, image: await getNearbyImage(place.name, place.lat, place.lon) })))
-          .then(setNearbyPlaces);
-      })
-      .catch(() => undefined);
-
-    return () => controller.abort();
-  }, [coordinates?.lat, coordinates?.lon, attraction.title]);
-
-  const alternatives = nearbyPlaces;
-
   return (
     <div className="min-h-screen bg-[#F5F6FA]">
       <div className="app-shell shadow-xl lg:shadow-none">
@@ -259,58 +198,6 @@ export default function RiskAlert() {
                 : 'คำแนะนำ: ควรเลื่อนกิจกรรมกลางแจ้งและสวมหน้ากากนามัย หากจำเป็นต้องออกไป'}
             </p>
 
-          </div>
-
-          {/* Alternative Destinations */}
-          <div className="bg-[#1F2E7A] rounded-2xl p-4 mb-4">
-            <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-              <MapPin className="w-5 h-5" />
-              สถานที่ใกล้เคียงที่แนะนำ
-            </h3>
-            <p className="text-white/80 text-sm mb-4">
-            </p>
-
-            <div className="space-y-3">
-              {alternatives.map((alt) => (
-                <Link
-                  key={alt.id}
-                  to={`/attraction/place-near-${alt.id}`}
-                  state={{
-                    title: alt.name,
-                    location: alt.name,
-                    province: 'ประเทศไทย',
-                    category: alt.type,
-                    lat: String(alt.lat),
-                    lon: String(alt.lon),
-                    mapUrl: `https://www.google.com/maps/search/?api=1&query=${alt.lat},${alt.lon}`,
-                    image: alt.image,
-                  }}
-                  className="block bg-white rounded-xl p-3 hover:shadow-lg transition-shadow"
-                >
-                  <div className="flex gap-3">
-                    {alt.image ? (
-                      <img src={alt.image} alt={alt.name} className="w-20 h-20 object-cover rounded-lg flex-shrink-0" />
-                    ) : (
-                      <div className="w-20 h-20 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                        <MapPin className="w-7 h-7 text-[#1F2E7A]" />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-[#1F2E7A] mb-1">{alt.name}</h4>
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="bg-green-100 px-2 py-1 rounded-full">
-                          <p className="text-xs font-semibold text-green-700">{alt.type}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-3 h-3 text-green-600" />
-                        <p className="text-xs text-gray-600">อยู่ใกล้สถานที่ที่ค้นหา · เปิดแผนที่</p>
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
           </div>
 
           {/* Emergency Info */}

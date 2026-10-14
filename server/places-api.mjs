@@ -163,8 +163,9 @@ export async function handlePlacesApi(request, response, apiKey) {
       const longitude = Number(place.lon);
       sendJson(response, 200, {
         id: requestUrl.searchParams.get('id'),
-        name: place.name || place.display_name?.split(',')[0]?.trim() || 'สถานที่ไม่ระบุชื่อ',
+        name: place.name || place.display_name?.split(',')[0]?.trim() || '',
         address: place.display_name || '',
+        province: place.address?.state || place.address?.province || '',
         latitude: Number.isFinite(latitude) ? latitude : undefined,
         longitude: Number.isFinite(longitude) ? longitude : undefined,
         types: [place.class, place.type].filter(Boolean),

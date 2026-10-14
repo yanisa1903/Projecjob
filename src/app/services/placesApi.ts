@@ -8,6 +8,7 @@ export interface PlaceSearchResult {
   userRatingCount?: number;
   photoName?: string;
   types?: string[];
+  province?: string;
   osmKey?: string;
   osmValue?: string;
 }
@@ -18,9 +19,9 @@ const TOURIST_OSM_TYPES = new Set([
   'historic:archaeological_site', 'historic:castle', 'historic:fort', 'historic:memorial',
   'historic:monument', 'historic:ruins', 'historic:city_gate', 'natural:beach',
   'natural:cave_entrance', 'natural:peak', 'natural:hot_spring', 'natural:waterfall',
-  'natural:bay', 'natural:cliff', 'natural:mountain_range', 'natural:water',
-  'place:island', 'waterway:waterfall', 'boundary:national_park', 'boundary:protected_area',
-  'leisure:nature_reserve', 'leisure:park', 'amenity:place_of_worship',
+  'natural:bay', 'natural:cliff', 'natural:mountain_range', 'natural:water', 'natural:volcano',
+  'place:island', 'waterway:waterfall', 'building:temple', 'boundary:national_park', 'boundary:protected_area',
+  'leisure:nature_reserve', 'leisure:park',   'amenity:place_of_worship', 'building:temple', 'amenity:cafe',
 ]);
 const GOOGLE_TOURISM_TYPES = new Set([
   'tourist_attraction', 'national_park', 'park', 'museum', 'art_gallery', 'zoo',
@@ -31,27 +32,33 @@ function normalizeSearchText(value: string) {
   return value.toLocaleLowerCase('th').normalize('NFC').replace(/\s+/g, ' ').trim();
 }
 
+function matchesSearchAlias(query: string, alias: string) {
+  if (!/^[\x00-\x7F]+$/.test(alias)) return query.includes(alias);
+  const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z])${escapedAlias}(?=$|[^a-z])`, 'i').test(query);
+}
+
 export function rankPlaceSearchResults(query: string, places: PlaceSearchResult[]): PlaceSearchResult[] {
   const term = normalizeSearchText(query)
     .replace(/^สถานที่ท่องเที่ยว\s*/i, '')
     .replace(/\s*ในประเทศไทย\s*$/i, '')
     .trim();
+  const search = getPhotonSearch(query);
+  const searchTerm = normalizeSearchText(search.query);
   const score = (place: PlaceSearchResult) => {
     const name = normalizeSearchText(place.name);
-    const exact = name === term ? 1200 : 0;
-    const startsWith = name.startsWith(term) ? 700 : 0;
-    const contains = name.includes(term) ? 350 : 0;
+    const exact = name === term ? 800 : 0;
+    const startsWith = name.startsWith(term) ? 450 : 0;
+    const contains = name.includes(term) ? 220 : 0;
+    const searchNameMatch = searchTerm !== term
+      ? name === searchTerm ? 700 : name.startsWith(searchTerm) ? 400 : name.includes(searchTerm) ? 180 : 0
+      : 0;
     const osmType = `${place.osmKey || ''}:${place.osmValue || ''}`;
-    const tourist = !isTouristPlace(place)
-      ? 0
-      : osmType === 'tourism:artwork'
-        ? 100
-        : osmType === 'leisure:park'
-          ? 400
-          : 700;
+    const categoryMatch = search.osmTags.includes(osmType) ? 1000 : 0;
+    const tourist = isTouristPlace(place) ? 1500 : 0;
     const rating = place.rating ? place.rating * 20 : 0;
     const reviewPopularity = place.userRatingCount ? Math.log10(place.userRatingCount + 1) * 45 : 0;
-    return exact + startsWith + contains + tourist + rating + reviewPopularity;
+    return exact + startsWith + contains + searchNameMatch + categoryMatch + tourist + rating + reviewPopularity;
   };
   return [...places].sort((left, right) => score(right) - score(left));
 }
@@ -81,16 +88,15 @@ export interface PlaceAutocompleteResult {
   longitude?: number;
   rating?: number;
   userRatingCount?: number;
+  province?: string;
 }
 
 export function getCategoryOsmTag(category: string): string | undefined {
-  const normalized = category.trim();
-  const exact = CATEGORY_OSM_TAGS[normalized];
-  if (exact) return exact;
-  const prefix = Object.keys(CATEGORY_OSM_TAGS)
-    .filter((label) => label.length > 1 && normalized.startsWith(label))
-    .sort((left, right) => right.length - left.length)[0];
-  return prefix ? CATEGORY_OSM_TAGS[prefix] : undefined;
+  return getCategoryOsmTags(category)[0];
+}
+
+export function getCategoryOsmTags(query: string): string[] {
+  return getPhotonSearch(query).osmTags;
 }
 
 interface CacheEntry<T> {
@@ -104,19 +110,38 @@ const photonCache = new Map<string, CacheEntry<PlaceSearchResult[]>>();
 let lastPhotonRequestAt = 0;
 let photonQueue: Promise<void> = Promise.resolve();
 const PHOTON_BBOX = '97.3,5.6,105.7,20.5';
-const CATEGORY_OSM_TAGS: Record<string, string> = {
-  'ทะเล': 'natural:beach',
-  'ชายหาด': 'natural:beach',
-  'ภูเขา': 'natural:peak',
-  'น้ำตก': 'waterway:waterfall',
-  'วัด': 'amenity:place_of_worship',
-  'อุทยาน': 'boundary:national_park',
-  'คาเฟ่': 'amenity:cafe',
-  'ตลาด': 'amenity:marketplace',
-  'พิพิธภัณฑ์': 'tourism:museum',
-  'ที่เที่ยวทั่วไป': 'tourism:attraction',
-  'สถานที่ท่องเที่ยว': 'tourism:attraction',
-};
+const CATEGORY_SEARCHES: Array<{ aliases: string[]; searchTerm: string; osmTags: string[] }> = [
+  { aliases: ['ชายหาด', 'ทะเล', 'beaches', 'beach', 'sea'], searchTerm: 'beach', osmTags: ['natural:beach', 'natural:bay', 'place:island'] },
+  { aliases: ['น้ำตก', 'waterfalls', 'waterfall'], searchTerm: 'waterfall', osmTags: ['natural:waterfall', 'waterway:waterfall'] },
+  { aliases: ['จุดชมวิว', 'วิว', 'viewpoints', 'viewpoint', 'scenic view'], searchTerm: 'viewpoint', osmTags: ['tourism:viewpoint'] },
+  { aliases: ['ภูเขา', 'ภูดอย', 'mountains', 'mountain'], searchTerm: 'mountain', osmTags: ['natural:peak', 'natural:mountain_range'] },
+  { aliases: ['เกาะ', 'islands', 'island'], searchTerm: 'island', osmTags: ['place:island'] },
+  { aliases: ['วัด', 'temples', 'temple'], searchTerm: 'temple', osmTags: ['amenity:place_of_worship', 'building:temple'] },
+  { aliases: ['คาเฟ่', 'ร้านกาแฟ', 'cafes', 'cafe', 'coffee shop'], searchTerm: 'cafe', osmTags: ['amenity:cafe'] },
+  { aliases: ['ตลาด', 'markets', 'market'], searchTerm: 'market', osmTags: ['amenity:marketplace'] },
+  { aliases: ['อุทยาน', 'national parks', 'national park'], searchTerm: 'national park', osmTags: ['boundary:national_park', 'boundary:protected_area', 'leisure:nature_reserve'] },
+  { aliases: ['พิพิธภัณฑ์', 'museums', 'museum'], searchTerm: 'museum', osmTags: ['tourism:museum'] },
+  { aliases: ['ที่เที่ยวทั่วไป', 'สถานที่ท่องเที่ยว', 'attractions', 'attraction'], searchTerm: 'tourist attraction', osmTags: ['tourism:attraction'] },
+];
+
+function getPhotonSearch(query: string) {
+  let searchTerm = normalizeSearchText(query);
+  const normalizedQuery = searchTerm;
+  const osmTags = CATEGORY_SEARCHES
+    .filter(({ aliases }) => aliases.some((alias) => matchesSearchAlias(normalizedQuery, normalizeSearchText(alias))))
+    .flatMap(({ osmTags: tags }) => tags);
+  for (const category of CATEGORY_SEARCHES) {
+    const alias = category.aliases
+      .map(normalizeSearchText)
+      .sort((left, right) => right.length - left.length)
+      .find((candidate) => matchesSearchAlias(searchTerm, candidate));
+    if (alias) {
+      searchTerm = normalizeSearchText(searchTerm.replace(alias, ` ${category.searchTerm} `));
+      break;
+    }
+  }
+  return { query: searchTerm, osmTags: [...new Set(osmTags)] };
+}
 
 class PlacesApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -172,20 +197,28 @@ function toPhotonResult(feature: {
 }): PlaceSearchResult | null {
   const coordinates = feature.geometry?.coordinates;
   const properties = feature.properties;
-  if (!coordinates || !properties?.osm_id || properties.countrycode?.toUpperCase() !== 'TH') return null;
+  if (!coordinates || !properties || !Number.isInteger(properties.osm_id) || (properties.osm_id || 0) <= 0
+    || !['N', 'W', 'R'].includes((properties.osm_type || '').toUpperCase())
+    || properties.countrycode?.toUpperCase() !== 'TH') return null;
   const [longitude, latitude] = coordinates;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+    || latitude < 5.6 || latitude > 20.5 || longitude < 97.3 || longitude > 105.7) return null;
   const name = properties.name?.trim();
   if (!name) return null;
   const address = [properties.city, properties.county, properties.district, properties.locality, properties.state]
     .filter((part, index, all): part is string => Boolean(part) && all.indexOf(part) === index)
-    .join(', ') || 'ประเทศไทย';
+    .join(', ');
   return {
     id: `osm:${(properties.osm_type || 'R').toUpperCase()}:${properties.osm_id}`,
     name,
     address,
     latitude,
     longitude,
-    types: [properties.osm_value, properties.type].filter((value): value is string => Boolean(value)),
+    types: [...new Set([
+      properties.osm_key && properties.osm_value ? `${properties.osm_key}:${properties.osm_value}` : '',
+      properties.type || '',
+    ].filter(Boolean))],
+    province: properties.state,
     osmKey: properties.osm_key,
     osmValue: properties.osm_value,
   };
@@ -224,10 +257,12 @@ async function waitForPhotonSlot(signal?: AbortSignal) {
 async function searchPhoton(
   query: string,
   signal?: AbortSignal,
-  osmTag?: string,
+  osmTags: string[] = [],
 ): Promise<PlaceSearchResult[]> {
-  const searchTerm = query.trim();
-  const cacheKey = `${searchTerm.toLocaleLowerCase('th')}|${osmTag || ''}`;
+  const search = getPhotonSearch(query);
+  const searchTerm = search.query;
+  const effectiveOsmTags = [...new Set([...search.osmTags, ...osmTags])];
+  const cacheKey = `${searchTerm.toLocaleLowerCase('th')}|${effectiveOsmTags.slice().sort().join(',')}`;
   const cachedResults = photonCache.get(cacheKey);
   if (cachedResults && cachedResults.expiresAt > Date.now()) return cachedResults.value;
   if (cachedResults) photonCache.delete(cacheKey);
@@ -239,7 +274,7 @@ async function searchPhoton(
     url.searchParams.set('limit', '50');
     url.searchParams.set('lang', 'default');
     url.searchParams.set('bbox', PHOTON_BBOX);
-    if (osmTag) url.searchParams.append('osm_tag', osmTag);
+    effectiveOsmTags.forEach((osmTag) => url.searchParams.append('osm_tag', osmTag));
     const response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error(`ค้นหาสถานที่ไม่สำเร็จ (${response.status})`);
     return response.json() as Promise<{
@@ -282,6 +317,7 @@ export function autocompletePlaces(
     name: place.name,
     address: place.address,
     types: place.types,
+    province: place.province,
     latitude: place.latitude,
     longitude: place.longitude,
     rating: place.rating,
@@ -292,9 +328,9 @@ export function autocompletePlaces(
 export function searchPlaces(
   query: string,
   signal?: AbortSignal,
-  options: { osmTag?: string } = {},
+  options: { osmTag?: string; osmTags?: string[] } = {},
 ): Promise<PlaceSearchResult[]> {
-  return searchPhoton(query, signal, options.osmTag);
+  return searchPhoton(query, signal, [...(options.osmTags || []), ...(options.osmTag ? [options.osmTag] : [])]);
 }
 
 export async function getPlaceDetails(

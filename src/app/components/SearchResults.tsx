@@ -7,7 +7,7 @@ import { THAI_PROVINCES } from '../data/provinces';
 import type { PlaceSearchOption } from '../hooks/usePlaceSearch';
 import { useUserCoordinates } from '../context/UserLocationContext';
 import {
-  getCategoryOsmTag,
+  getCategoryOsmTags,
   getPlacePhotoUrl,
   searchPlaces,
   type PlaceDetails,
@@ -36,9 +36,12 @@ function distanceInKm(from: { latitude: number; longitude: number }, to: { latit
 }
 
 function categoryLabel(types: string[] = []) {
-  if (types.some((type) => /beach|island/i.test(type))) return 'ทะเล';
-  if (types.some((type) => /temple|church|mosque/i.test(type))) return 'วัด';
-  if (types.some((type) => /park|national_park/i.test(type))) return 'อุทยาน';
+  if (types.some((type) => /beach|island|bay/i.test(type))) return 'ทะเล / เกาะ';
+  if (types.some((type) => /waterfall/i.test(type))) return 'น้ำตก';
+  if (types.some((type) => /viewpoint/i.test(type))) return 'จุดชมวิว';
+  if (types.some((type) => /mountain|peak/i.test(type))) return 'ภูเขา';
+  if (types.some((type) => /temple|place_of_worship|church|mosque/i.test(type))) return 'วัด';
+  if (types.some((type) => /park|national_park|nature_reserve/i.test(type))) return 'อุทยาน';
   if (types.some((type) => /museum/i.test(type))) return 'พิพิธภัณฑ์';
   if (types.some((type) => /cafe/i.test(type))) return 'คาเฟ่';
   return 'สถานที่ท่องเที่ยว';
@@ -46,7 +49,7 @@ function categoryLabel(types: string[] = []) {
 
 function toPlaceState(place: PlaceDetails | PlaceSearchResult) {
   const address = place.address || place.name;
-  const province = THAI_PROVINCES.find((item) => address.includes(item)) || 'ประเทศไทย';
+  const province = place.province || THAI_PROVINCES.find((item) => address.includes(item)) || '';
   const images = 'photos' in place
     ? place.photos.map((photo) => getPlacePhotoUrl(photo)).filter((url): url is string => Boolean(url))
     : [getPlacePhotoUrl(place.photoName)].filter((url): url is string => Boolean(url));
@@ -99,7 +102,8 @@ export default function SearchResults() {
         ? category || query
         : query;
     searchPlaces(searchTerm, controller.signal, {
-      osmTag: mode === 'province' ? 'tourism:attraction' : mode === 'category' ? getCategoryOsmTag(category || query) : undefined,
+      osmTag: mode === 'province' ? 'tourism:attraction' : undefined,
+      osmTags: mode === 'category' ? getCategoryOsmTags(category || query) : undefined,
     })
       .then((results) => {
         if (!controller.signal.aborted) setPlaces(results);

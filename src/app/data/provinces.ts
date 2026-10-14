@@ -11,8 +11,10 @@ export const THAI_PROVINCES = [
 
 export const PLACE_CATEGORIES = [
   'ทะเล',
+  'เกาะ',
   'ภูเขา',
   'น้ำตก',
+  'จุดชมวิว',
   'วัด',
   'อุทยาน',
   'คาเฟ่',

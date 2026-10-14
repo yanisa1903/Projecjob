@@ -75,6 +75,7 @@ export function PlaceSearchBox({
         latitude: option.latitude,
         longitude: option.longitude,
         types: option.types || [],
+        province: option.province,
         photos: [],
         rating: option.rating,
         userRatingCount: option.reviewCount,
@@ -209,7 +210,7 @@ export function PlaceSearchBox({
             <div className="px-4 py-3 text-sm text-slate-500" role="status">กำลังโหลดรายละเอียดสถานที่...</div>
           )}
           {!isLoading && !error && !selectionError && !isSelecting && options.length === 0 && (
-            <div className="px-4 py-3 text-sm text-slate-500">ไม่พบสถานที่</div>
+            <div className="px-4 py-3 text-sm text-slate-500">ไม่พบสถานที่ ลองใช้คำค้นอื่น</div>
           )}
           {options.some((option) => option.kind === 'place' && option.id.startsWith('osm:')) && (
             <div className="border-t border-slate-100 px-4 pt-2 text-[11px] text-slate-400">
