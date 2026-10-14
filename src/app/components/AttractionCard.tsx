@@ -35,7 +35,10 @@ export default function AttractionCard({
   onToggleFavorite,
   variant,
 }: AttractionCardProps) {
-  const { review, isLoading: reviewsLoading } = usePlaceReviews(attraction.title, attraction.province);
+  const { review, isLoading: reviewsLoading } = usePlaceReviews(attraction.title, attraction.province, {
+    latitude: attraction.latitude,
+    longitude: attraction.longitude,
+  });
   const distanceKm = useUserDistance(
     attraction.latitude !== undefined && attraction.longitude !== undefined
       ? { latitude: attraction.latitude, longitude: attraction.longitude }
@@ -101,11 +104,11 @@ export default function AttractionCard({
         )}
         {reviewsLoading ? (
           <div className="mt-1 h-3.5 w-32 animate-pulse rounded bg-slate-100" aria-label="กำลังโหลดรีวิว" />
-        ) : review && (
+        ) : review && typeof review.rating === 'number' && (
           <p className={`mt-1 inline-flex items-center gap-1.5 ${isRecommended ? 'text-[10px]' : 'text-xs'} text-slate-600`}>
             <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" />
             <span>{review.rating.toFixed(1)}</span>
-            <span>({review.reviewCount.toLocaleString('th-TH')} รีวิว)</span>
+            {review.reviewCount !== undefined && <span>({review.reviewCount.toLocaleString('th-TH')} รีวิว)</span>}
           </p>
         )}
         {distanceKm !== null && (

@@ -66,29 +66,107 @@ function normalizePlaceName(value) {
   return value.toLocaleLowerCase('th').normalize('NFC').replace(/[\s\p{P}\p{S}]+/gu, '');
 }
 
-async function findGooglePlaceReview(name, province, apiKey) {
-  const searchData = await googleRequest(`${GOOGLE_PLACES_BASE}/places:searchText`, apiKey, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-FieldMask': 'places.id',
-    },
-    body: JSON.stringify({
-      textQuery: `${name}, ${province}, Thailand`,
-      languageCode: 'th',
-      regionCode: 'TH',
-      maxResultCount: 5,
-    }),
-  });
-  const match = searchData.places?.[0];
-  if (!match?.id) return null;
+function distanceInMeters(from, to) {
+  const radians = (value) => value * Math.PI / 180;
+  const latitudeDelta = radians(to.latitude - from.latitude);
+  const longitudeDelta = radians(to.longitude - from.longitude);
+  const arc = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(from.latitude)) * Math.cos(radians(to.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
 
-  const detailsUrl = new URL(`${GOOGLE_PLACES_BASE}/places/${encodeURIComponent(match.id)}`);
+async function findGooglePlaceReview({ name, province, latitude, longitude, placeId }, apiKey) {
+  let googlePlaceId = placeId && !placeId.startsWith('osm:') ? placeId : '';
+  const matchedById = Boolean(googlePlaceId);
+  if (!googlePlaceId) {
+    const searchData = await googleRequest(`${GOOGLE_PLACES_BASE}/places:searchText`, apiKey, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.location',
+      },
+      body: JSON.stringify({
+        textQuery: [name, province, 'Thailand'].filter(Boolean).join(', '),
+        languageCode: 'th',
+        regionCode: 'TH',
+        maxResultCount: 5,
+        ...(Number.isFinite(latitude) && Number.isFinite(longitude) ? {
+          locationBias: {
+            circle: {
+              center: { latitude, longitude },
+              radius: 5000,
+            },
+          },
+        } : {}),
+      }),
+    });
+    const normalizedName = normalizePlaceName(name);
+    const match = (searchData.places || [])
+      .map((place) => {
+        const candidateName = normalizePlaceName(place.displayName?.text || '');
+        const exactName = candidateName === normalizedName;
+        const nameMatch = exactName || (candidateName.length > 0
+          && (candidateName.includes(normalizedName) || normalizedName.includes(candidateName)));
+        const distance = Number.isFinite(latitude) && Number.isFinite(longitude)
+          && Number.isFinite(place.location?.latitude) && Number.isFinite(place.location?.longitude)
+          ? distanceInMeters(
+              { latitude, longitude },
+              { latitude: place.location.latitude, longitude: place.location.longitude },
+            )
+          : undefined;
+        return { place, exactName, nameMatch, distance };
+      })
+      .filter((candidate) => candidate.nameMatch
+        && (candidate.distance === undefined || candidate.distance <= 5000))
+      .sort((left, right) => Number(right.exactName) - Number(left.exactName)
+        || (left.distance ?? Infinity) - (right.distance ?? Infinity))[0];
+    googlePlaceId = match?.place.id || '';
+  }
+  if (!googlePlaceId) return null;
+
+  const detailsUrl = new URL(`${GOOGLE_PLACES_BASE}/places/${encodeURIComponent(googlePlaceId)}`);
   const details = await googleRequest(detailsUrl, apiKey, {
-    headers: { 'X-Goog-FieldMask': 'rating,userRatingCount' },
+    headers: {
+      'X-Goog-FieldMask': [
+        'id', 'displayName', 'formattedAddress', 'location', 'rating', 'userRatingCount',
+        'reviews.rating', 'reviews.text', 'reviews.originalText', 'reviews.publishTime',
+        'reviews.relativePublishTimeDescription', 'reviews.authorAttribution', 'reviews.googleMapsUri',
+        'googleMapsUri',
+      ].join(','),
+    },
   });
-  if (typeof details.rating !== 'number' || typeof details.userRatingCount !== 'number') return null;
-  return { rating: details.rating, reviewCount: details.userRatingCount };
+  const googleName = normalizePlaceName(details.displayName?.text || '');
+  const requestedName = normalizePlaceName(name);
+  if (!matchedById && googleName !== requestedName
+    && !googleName.includes(requestedName) && !requestedName.includes(googleName)) {
+    return null;
+  }
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)
+    && Number.isFinite(details.location?.latitude) && Number.isFinite(details.location?.longitude)
+    && distanceInMeters(
+      { latitude, longitude },
+      { latitude: details.location.latitude, longitude: details.location.longitude },
+    ) > 5000) return null;
+
+  const reviews = (details.reviews || [])
+    .filter((review) => review.authorAttribution?.displayName
+      && (review.text?.text || review.originalText?.text))
+    .map((review) => ({
+      rating: review.rating,
+      text: review.text?.text || review.originalText?.text || '',
+      publishTime: review.publishTime,
+      relativePublishTimeDescription: review.relativePublishTimeDescription,
+      authorName: review.authorAttribution.displayName,
+      authorUri: review.authorAttribution.uri,
+      authorPhotoUri: review.authorAttribution.photoUri,
+      googleMapsUri: review.googleMapsUri || details.googleMapsUri,
+    }));
+  return {
+    rating: typeof details.rating === 'number' ? details.rating : undefined,
+    reviewCount: typeof details.userRatingCount === 'number' ? details.userRatingCount : undefined,
+    reviews,
+    googleMapsUri: details.googleMapsUri,
+  };
 }
 
 export async function handlePlacesApi(request, response, apiKey) {
@@ -97,15 +175,21 @@ export async function handlePlacesApi(request, response, apiKey) {
   if (requestUrl.pathname === '/api/places/reviews' && request.method === 'GET') {
     const name = requestUrl.searchParams.get('name')?.trim() || '';
     const province = requestUrl.searchParams.get('province')?.trim() || '';
-    if (!name || !province || name.length > 200 || province.length > 100) {
-      sendJson(response, 400, { error: 'ต้องระบุชื่อสถานที่และจังหวัดให้ถูกต้อง' });
+    const placeId = requestUrl.searchParams.get('placeId')?.trim() || '';
+    const latitude = requestUrl.searchParams.has('lat') ? Number(requestUrl.searchParams.get('lat')) : undefined;
+    const longitude = requestUrl.searchParams.has('lon') ? Number(requestUrl.searchParams.get('lon')) : undefined;
+    if (!name || name.length > 200 || province.length > 100
+      || (placeId && placeId.length > 256)
+      || (latitude !== undefined && (!Number.isFinite(latitude) || latitude < 5.6 || latitude > 20.5))
+      || (longitude !== undefined && (!Number.isFinite(longitude) || longitude < 97.3 || longitude > 105.7))) {
+      sendJson(response, 400, { error: 'ต้องระบุชื่อสถานที่และข้อมูลตำแหน่งให้ถูกต้อง' });
       return true;
     }
     if (!apiKey) {
       sendJson(response, 503, { error: 'ยังไม่ได้กำหนด GOOGLE_PLACES_API_KEY บนเซิร์ฟเวอร์' });
       return true;
     }
-    const cacheKey = `${normalizePlaceName(name)}:${normalizePlaceName(province)}`;
+    const cacheKey = `${placeId || ''}:${normalizePlaceName(name)}:${normalizePlaceName(province)}:${latitude ?? ''}:${longitude ?? ''}`;
     const cachedReview = reviewCache.get(cacheKey);
     if (cachedReview && cachedReview.expiresAt > Date.now()) {
       sendJson(response, 200, { review: cachedReview.value });
@@ -115,7 +199,7 @@ export async function handlePlacesApi(request, response, apiKey) {
     try {
       let reviewRequest = reviewRequests.get(cacheKey);
       if (!reviewRequest) {
-        reviewRequest = findGooglePlaceReview(name, province, apiKey)
+        reviewRequest = findGooglePlaceReview({ name, province, latitude, longitude, placeId }, apiKey)
           .then((value) => {
             reviewCache.set(cacheKey, { value, expiresAt: Date.now() + REVIEW_CACHE_DURATION_MS });
             return value;

@@ -11,6 +11,7 @@ import { THAI_PROVINCES } from '../data/provinces';
 import { useUserCoordinates } from '../context/UserLocationContext';
 import { removeFavoritePlace, saveFavoritePlace } from '../utils/favorites';
 import { describeWeatherCode, fetchTripForecast, type TripForecast } from '../utils/tripForecast';
+import { usePlaceReviews } from '../hooks/usePlaceReviews';
 
 type NearbyPlace = {
   id: number;
@@ -280,6 +281,8 @@ export default function AttractionDetail() {
         mapUrl: locationState.mapUrl,
       }
     : { ...savedAttraction, images: [] };
+  const reviewProvince = locationState?.province
+    || (getProvince(attraction.location) !== 'ไม่พบข้อมูลจังหวัด' ? getProvince(attraction.location) : '');
 
   const [weather, setWeather] = useState<{
     temperatures: number[];
@@ -307,6 +310,15 @@ export default function AttractionDetail() {
     '8': { lat: '18.5883', lon: '98.4878' },
   };
   const coordinates = locationState?.lat && locationState.lon ? locationState : legacyCoordinates[id || ''];
+  const { review: placeReview, isLoading: isReviewLoading, error: reviewError } = usePlaceReviews(
+    attraction.title,
+    reviewProvince,
+    {
+      placeId: locationState?.placeId || (id?.startsWith('place-') ? id.slice('place-'.length) : undefined),
+      latitude: coordinates?.lat ? Number(coordinates.lat) : undefined,
+      longitude: coordinates?.lon ? Number(coordinates.lon) : undefined,
+    },
+  );
   const mapUrl = coordinates?.lat && coordinates.lon
     ? `https://www.google.com/maps?q=${coordinates.lat},${coordinates.lon}&output=embed`
     : '';
@@ -1089,9 +1101,50 @@ export default function AttractionDetail() {
                   )}
                   <div className="border-t border-slate-100 pt-3">
                   <p className="mb-1 flex items-center gap-1.5 text-xs text-slate-500"><Star className="h-4 w-4 text-amber-500" />รีวิวจากนักท่องเที่ยว</p>
-                  {typeof locationState?.rating === 'number' ? (
-                    <p className="font-semibold text-slate-800">{locationState.rating.toFixed(1)} / 5{locationState.reviewCount !== undefined ? ` · ${locationState.reviewCount.toLocaleString('th-TH')} รีวิว` : ''}</p>
-                  ) : <p className="text-slate-500">ไม่มีข้อมูลรีวิวจากแหล่งข้อมูล</p>}
+                  {isReviewLoading ? (
+                    <p className="text-slate-500" role="status">กำลังโหลดรีวิวจาก Google Maps...</p>
+                  ) : reviewError ? null : placeReview ? (
+                    <div className="space-y-3">
+                      {typeof placeReview.rating === 'number' && (
+                        <p className="font-semibold text-slate-800">
+                          {placeReview.rating.toFixed(1)} / 5
+                          {placeReview.reviewCount !== undefined ? ` · ${placeReview.reviewCount.toLocaleString('th-TH')} รีวิว` : ''}
+                        </p>
+                      )}
+                      {placeReview.reviews.length > 0 ? placeReview.reviews.map((review, index) => (
+                        <article key={`${review.authorName}-${review.publishTime || index}`} className="rounded-xl bg-slate-50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            {review.authorUri ? (
+                              <a href={review.authorUri} target="_blank" rel="noreferrer" className="font-semibold text-slate-800 underline">
+                                {review.authorName}
+                              </a>
+                            ) : (
+                              <p className="font-semibold text-slate-800">{review.authorName}</p>
+                            )}
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              {typeof review.rating === 'number' && <span className="font-semibold text-amber-700">★ {review.rating}/5</span>}
+                              {review.relativePublishTimeDescription && <span>{review.relativePublishTimeDescription}</span>}
+                            </div>
+                          </div>
+                          <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">{review.text}</p>
+                          {review.googleMapsUri && (
+                            <a href={review.googleMapsUri} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-blue-700 underline">
+                              ดูรีวิวนี้บน Google Maps
+                            </a>
+                          )}
+                        </article>
+                      )) : (
+                        <p className="text-sm text-slate-500">Google Maps ยังไม่มีข้อความรีวิวสำหรับสถานที่นี้</p>
+                      )}
+                      {placeReview.googleMapsUri && (
+                        <a href={placeReview.googleMapsUri} target="_blank" rel="noreferrer" className="inline-block text-xs text-blue-700 underline">
+                          ที่มา: Google Maps
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-slate-500">ไม่พบรีวิวจาก Google Maps สำหรับสถานที่นี้</p>
+                  )}
                   </div>
                 </div>
                 {mapUrl && (
