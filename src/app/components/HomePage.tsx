@@ -1040,9 +1040,9 @@ export default function HomePage() {
 
                 <div className="max-w-xl lg:pr-72">
                   <p className="mb-2 text-sm font-medium uppercase tracking-[0.2em] text-blue-100">Let&apos;s Explore</p>
-                  <h1 className="text-3xl font-black leading-tight text-white sm:text-5xl">เที่ยวไทย ไปได้ทุกที่</h1>
-                  <p className="mt-3 max-w-md text-sm text-blue-50/90 sm:text-base">
-                    ค้นหาสถานที่ท่องเที่ยวที่เหมาะกับการเดินทางของคุณ พร้อมข้อมูลสภาพอากาศและความปลอดภัยแบบเรียลไทม์
+                  <h1 className="text-3xl font-black leading-tight text-white sm:text-5xl">ทุกการเดินทาง มีเรื่องราวเสมอ</h1>
+                  <p className="mt-3 max-w-md text-sm text-blue-30/60 sm:text-base">
+                    ค้นพบสถานที่ใหม่ ๆ พร้อมข้อมูลสภาพอากาศและความปลอดภัย ให้ทุกทริปเต็มไปด้วยความประทับใจ
                   </p>
                 </div>
 
