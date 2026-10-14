@@ -1,4 +1,4 @@
-import { ChevronRight, Heart, MapPin, Star } from 'lucide-react';
+import { Compass, ChevronRight, Heart, MapPin, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import { formatUserDistance, useUserDistance } from '../hooks/useUserDistance';
 import { usePlaceReviews } from '../hooks/usePlaceReviews';
@@ -6,6 +6,7 @@ import { usePlaceReviews } from '../hooks/usePlaceReviews';
 interface AttractionCardPlace {
   id: string | number;
   key: string;
+  routeId?: string;
   title: string;
   province: string;
   category: string;
@@ -44,7 +45,7 @@ export default function AttractionCard({
       ? { latitude: attraction.latitude, longitude: attraction.longitude }
       : null,
   );
-  const route = `/attraction/${attraction.id}`;
+  const route = `/attraction/${attraction.routeId || attraction.id}`;
   const placeState = {
     title: attraction.title,
     location: attraction.location,
@@ -71,11 +72,17 @@ export default function AttractionCard({
     <article className={cardClassName}>
       <div className={`relative ${isRecommended ? '' : 'overflow-hidden'}`}>
         <Link to={route} state={placeState} aria-label={`ดูรายละเอียด ${attraction.title}`}>
-          <img
-            src={attraction.images[0]}
-            alt={attraction.title}
-            className={`h-52 w-full object-cover sm:h-56 ${isRecommended ? '' : 'transition-transform duration-500 group-hover:scale-105'}`}
-          />
+          {attraction.images[0] ? (
+            <img
+              src={attraction.images[0]}
+              alt={attraction.title}
+              className={`h-52 w-full object-cover sm:h-56 ${isRecommended ? '' : 'transition-transform duration-500 group-hover:scale-105'}`}
+            />
+          ) : (
+            <div className="flex h-52 w-full items-center justify-center bg-gradient-to-br from-sky-50 to-blue-100 text-blue-300 sm:h-56" aria-label={`ไม่มีรูปภาพสำหรับ${attraction.title}`}>
+              <Compass className="h-10 w-10" aria-hidden="true" />
+            </div>
+          )}
         </Link>
         <button
           type="button"

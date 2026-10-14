@@ -437,7 +437,7 @@ export default function AttractionDetail() {
     .map(([activity]) => activity);
   const estimatedCost = typeof locationState?.entranceFee === 'number'
     ? (locationState.entranceFee === 0 ? 'ไม่มีค่าเข้า' : `${locationState.entranceFee.toLocaleString('th-TH')} บาท`)
-    : 'ไม่มีราคาในข้อมูลสถานที่ · ค่าใช้จ่ายขึ้นกับกิจกรรม/ผู้ให้บริการ ควรตรวจสอบก่อนเดินทาง';
+    : 'ค่าใช้จ่ายขึ้นกับกิจกรรม/ผู้ให้บริการ ควรตรวจสอบก่อนเดินทาง';
   const sourceRecommendedTime = locationState?.recommendedTime?.trim();
   const recommendedTime = sourceRecommendedTime && !/^(ไม่มีข้อมูล|ไม่มีข้อมูลช่วงเวลาที่แนะนำจากแหล่งข้อมูล)$/i.test(sourceRecommendedTime)
     ? sourceRecommendedTime

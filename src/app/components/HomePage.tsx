@@ -544,6 +544,7 @@ export default function HomePage() {
   const apiAttractions = tatPlaces.map((place, index) => ({
     id: 1000 + index,
     key: `tat-${place.id ?? index}`,
+    routeId: undefined,
     title: place.name,
     province: place.province,
     sourceType: place.type,
@@ -565,6 +566,7 @@ export default function HomePage() {
   const sourceAttractions = apiAttractions.length > 0 ? apiAttractions : attractions.map((place) => ({
     ...place,
     key: `local-${place.id}`,
+    routeId: undefined,
     province: getProvinceName(place.location),
     sourceType: place.category,
     rating: undefined,
@@ -762,12 +764,43 @@ export default function HomePage() {
       })(),
     }))
     .filter((attraction) => attraction.images.length > 0);
+  const selectedPlaceAttraction = selectedPlace
+    ? {
+        id: -1,
+        key: selectedPlace.key,
+        routeId: selectedPlace.routeId,
+        title: selectedPlace.title,
+        province: selectedPlace.province,
+        sourceType: selectedPlace.category,
+        category: selectedPlace.category,
+        latitude: selectedPlace.lat ? Number(selectedPlace.lat) : undefined,
+        longitude: selectedPlace.lon ? Number(selectedPlace.lon) : undefined,
+        description: selectedPlace.description || '',
+        location: selectedPlace.location,
+        images: selectedPlace.images || [],
+        rating: selectedPlace.rating,
+        reviewCount: selectedPlace.reviewCount,
+        entranceFee: selectedPlace.entranceFee,
+        recommendedTime: selectedPlace.recommendedTime,
+        openingHours: selectedPlace.openingHours,
+        travelCaution: selectedPlace.travelCaution,
+        suitableFor: [] as string[],
+        createdAt: undefined,
+        distanceKm: locationOrigin && selectedPlace.lat && selectedPlace.lon
+          ? distanceBetween(Number(selectedPlace.lat), Number(selectedPlace.lon), locationOrigin)
+          : undefined,
+      }
+    : null;
+  const recommendationAttractions = selectedPlaceAttraction
+    && (selectedCategory === 'ทั้งหมด' || selectedPlaceAttraction.category === selectedCategory)
+    ? [selectedPlaceAttraction, ...filteredAttractions.filter((attraction) => attraction.key !== selectedPlaceAttraction.key)]
+    : filteredAttractions;
   const nearbyAttractions = locationOrigin
-    ? [...filteredAttractions]
+    ? [...recommendationAttractions]
         .filter((attraction) => attraction.distanceKm !== undefined && Number.isFinite(attraction.distanceKm))
         .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity))
     : [];
-  const displayedAttractions = [...filteredAttractions];
+  const displayedAttractions = [...recommendationAttractions];
   if (discoveryCategory === 'คะแนนสูง') {
     for (let index = displayedAttractions.length - 1; index >= 0; index -= 1) {
       if (displayedAttractions[index].rating === undefined) displayedAttractions.splice(index, 1);
@@ -913,7 +946,7 @@ export default function HomePage() {
       setFavoriteIds((current) => current.filter((key) => key !== attraction.key));
       return;
     }
-    const route = `/attraction/${attraction.id}`;
+    const route = `/attraction/${attraction.routeId || attraction.id}`;
     const placeState = {
       title: attraction.title,
       location: attraction.location,
