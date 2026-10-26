@@ -44,6 +44,8 @@ const CATEGORY_ALIASES: Record<string, string[]> = {
   'ภูเขา': ['mountain', 'mountains'],
   'น้ำตก': ['waterfall', 'waterfalls'],
   'จุดชมวิว': ['viewpoint', 'viewpoints', 'scenic view'],
+  'ธรรมชาติ': ['nature', 'national park', 'forest', 'natural reserve'],
+  'ประวัติศาสตร์': ['historic', 'historical site', 'archaeological site'],
   'วัด': ['temple', 'temples'],
   'อุทยาน': ['national park', 'national parks'],
   'คาเฟ่': ['cafe', 'cafes', 'coffee shop'],

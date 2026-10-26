@@ -18,6 +18,30 @@ export type TripForecast = {
   waveHeightAvailable: boolean;
 };
 
+export const MAX_FORECAST_DAYS = 16;
+
+function getBangkokDateString(date = new Date()) {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok' }).format(date);
+}
+
+export function getForecastLastDate() {
+  const [year, month, day] = getBangkokDateString().split('-').map(Number);
+  const lastDate = new Date(year, month - 1, day);
+  lastDate.setDate(lastDate.getDate() + MAX_FORECAST_DAYS - 1);
+  return lastDate;
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getForecastLastDateString() {
+  return formatLocalDate(getForecastLastDate());
+}
+
 type WeatherResponse = {
   daily?: {
     time?: string[];
@@ -64,6 +88,12 @@ export async function fetchTripForecast(
   signal: AbortSignal,
   includeMarine = false,
 ): Promise<TripForecast> {
+  const today = getBangkokDateString();
+  const lastForecastDate = getForecastLastDateString();
+  if (startDate < today || endDate < startDate || endDate > lastForecastDate) {
+    throw new Error(`พยากรณ์รายวันรองรับล่วงหน้าสูงสุด ${MAX_FORECAST_DAYS} วัน (ถึง ${lastForecastDate})`);
+  }
+
   const coordinates = `latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}`;
   const dateRange = `start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
   const weatherUrl = `https://api.open-meteo.com/v1/forecast?${coordinates}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,wind_speed_10m_max&${dateRange}&timezone=auto`;

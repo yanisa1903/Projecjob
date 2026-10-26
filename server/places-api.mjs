@@ -396,6 +396,7 @@ export async function handlePlacesApi(request, response, apiKey) {
           'X-Goog-FieldMask': [
             'id', 'displayName', 'formattedAddress', 'location', 'rating', 'userRatingCount',
             'photos', 'types', 'websiteUri', 'googleMapsUri', 'editorialSummary',
+            'nationalPhoneNumber', 'internationalPhoneNumber', 'regularOpeningHours.weekdayDescriptions',
           ].join(','),
         },
       });
@@ -406,6 +407,8 @@ export async function handlePlacesApi(request, response, apiKey) {
         photos: (data.photos || []).map((photo) => photo.name).filter(Boolean),
         websiteUri: data.websiteUri,
         googleMapsUri: data.googleMapsUri,
+        phone: data.nationalPhoneNumber || data.internationalPhoneNumber,
+        openingHours: data.regularOpeningHours?.weekdayDescriptions?.join('\n'),
       });
       return true;
     }

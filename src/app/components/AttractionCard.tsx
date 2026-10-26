@@ -82,12 +82,12 @@ export default function AttractionCard({
   }, [attraction.latitude, attraction.longitude, attraction.title, firstImage, imageListKey]);
   const isRecommended = variant === 'recommended';
   const cardClassName = isRecommended
-    ? 'group overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_4px_16px_rgba(31,46,122,0.08)] transition-all hover:-translate-y-0.5 hover:shadow-lg'
-    : 'group flex min-h-24 overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_3px_12px_rgba(31,46,122,0.07)] transition-all hover:-translate-y-0.5 hover:shadow-md';
+    ? 'group h-[160px] w-full overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_4px_16px_rgba(31,46,122,0.08)] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg'
+    : 'group flex h-28 min-w-0 overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_3px_12px_rgba(31,46,122,0.07)] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-md';
 
   return (
     <article className={cardClassName}>
-      <div className={`relative ${isRecommended ? 'h-28 overflow-hidden sm:h-32' : 'h-24 w-28 shrink-0 overflow-hidden sm:w-32'}`}>
+      <div className={`relative ${isRecommended ? 'h-[88px] overflow-hidden' : 'h-full w-28 shrink-0 overflow-hidden sm:w-32'}`}>
         <Link to={route} state={placeState} aria-label={`ดูรายละเอียด ${attraction.title}`}>
           {placeImages[0] ? (
             <img
@@ -102,7 +102,7 @@ export default function AttractionCard({
           )}
         </Link>
         {isRecommended && (
-          <span className="absolute left-2 top-2 max-w-[calc(100%-3rem)] truncate rounded-full bg-[#1F2E7A]/80 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
+          <span className="absolute left-2 top-2 max-w-[calc(100%-3rem)] truncate rounded-full bg-[#1F2E7A]/85 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
             {attraction.category}
           </span>
         )}
@@ -118,34 +118,63 @@ export default function AttractionCard({
           <Heart className={`${isRecommended ? 'h-4 w-4' : 'h-3.5 w-3.5'} ${isFavorite ? 'fill-rose-500 text-rose-500' : ''}`} />
         </button>
       </div>
-      <Link to={route} state={placeState} className={`block min-w-0 ${isRecommended ? 'min-h-[92px] p-3' : 'flex-1 p-2.5'}`}>
-        <div className="flex items-center justify-between gap-2">
-          <h3 className={`line-clamp-1 min-w-0 font-bold text-[#1F2E7A] ${isRecommended ? 'text-sm' : 'text-xs transition-colors group-hover:text-blue-700'}`}>
+      <Link to={route} state={placeState} className={`block min-w-0 ${isRecommended ? 'flex h-[72px] flex-col justify-center gap-0.5 px-2.5 py-1' : 'flex h-full min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden p-2.5'}`}>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <h3 className={`line-clamp-1 min-w-0 font-bold text-[#1F2E7A] ${isRecommended ? 'text-xs' : 'text-xs transition-colors group-hover:text-blue-700'}`}>
             {attraction.title}
           </h3>
           <ChevronRight className="h-4 w-4 shrink-0 text-[#1F2E7A]" aria-hidden="true" />
         </div>
-        {attraction.province && (
-          <p className={`mt-1 inline-flex min-w-0 items-center gap-1 ${isRecommended ? 'text-[10px]' : 'text-[10px]'} text-slate-500`}>
-            <MapPin className="h-3.5 w-3.5 shrink-0 text-[#1F2E7A]" />
-            <span className="truncate">{attraction.province}</span>
-          </p>
-        )}
-        {reviewsLoading ? (
-          <div className="mt-1 h-3.5 w-32 animate-pulse rounded bg-slate-100" aria-label="กำลังโหลดรีวิว" />
-        ) : (typeof review?.rating === 'number' || typeof attraction.rating === 'number') && (
-          <p className={`mt-1 inline-flex items-center gap-1.5 ${isRecommended ? 'text-[10px]' : 'text-xs'} text-slate-600`}>
-            <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" />
-            <span>{(review?.rating ?? attraction.rating)?.toFixed(1)}</span>
-            {(review?.reviewCount ?? attraction.reviewCount) !== undefined
-              && <span>({(review?.reviewCount ?? attraction.reviewCount)?.toLocaleString('th-TH')} รีวิว)</span>}
-          </p>
-        )}
-        {distanceKm !== null && (
-          <p className={`mt-1 inline-flex items-center gap-1.5 ${isRecommended ? 'text-[10px]' : 'text-xs font-semibold'} text-slate-600`}>
-            <MapPin className="h-3.5 w-3.5 shrink-0 text-[#1F2E7A]" />
-            {formatUserDistance(distanceKm)}
-          </p>
+        {isRecommended ? (
+          <>
+            {attraction.province && (
+              <p className="inline-flex min-w-0 items-center gap-1 text-[10px] text-slate-500">
+                <MapPin className="h-3 w-3 shrink-0 text-[#1F2E7A]" />
+                <span className="truncate">{attraction.province}</span>
+              </p>
+            )}
+            <div className="flex min-w-0 items-center justify-between gap-2 text-[10px] text-slate-500">
+              {reviewsLoading ? (
+                <span className="h-3 w-14 animate-pulse rounded bg-slate-100" aria-label="กำลังโหลดรีวิว" />
+              ) : typeof review?.rating === 'number' || typeof attraction.rating === 'number' ? (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-500" />
+                  <span>{(review?.rating ?? attraction.rating)?.toFixed(1)}</span>
+                  {(review?.reviewCount ?? attraction.reviewCount) !== undefined
+                    && <span className="truncate">({(review?.reviewCount ?? attraction.reviewCount)?.toLocaleString('th-TH')} รีวิว)</span>}
+                </span>
+              ) : <span />}
+              {distanceKm !== null && (
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-medium">
+                  <MapPin className="h-3 w-3 text-[#1F2E7A]" />
+                  {formatUserDistance(distanceKm)}
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-slate-500">
+            {attraction.province && (
+              <p className="inline-flex min-w-0 items-center gap-1">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-[#1F2E7A]" />
+                <span className="truncate">{attraction.province}</span>
+              </p>
+            )}
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
+              {!reviewsLoading && (typeof review?.rating === 'number' || typeof attraction.rating === 'number') && (
+                <p className="inline-flex items-center gap-1 text-slate-600">
+                  <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-500" />
+                  <span>{(review?.rating ?? attraction.rating)?.toFixed(1)}</span>
+                </p>
+              )}
+              {distanceKm !== null && (
+                <p className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-slate-600">
+                  <MapPin className="h-3 w-3 shrink-0 text-[#1F2E7A]" />
+                  {formatUserDistance(distanceKm)}
+                </p>
+              )}
+            </div>
+          </div>
         )}
       </Link>
     </article>

@@ -136,7 +136,9 @@ export default function WeatherCard({ weather, theme, forecastLabels, placeTitle
             <p className="weather-iphone-eyebrow">พยากรณ์อากาศ</p>
             <h3 className="weather-iphone-title">พยากรณ์อากาศ ({placeTitle})</h3>
           </div>
-          <p className="weather-iphone-updated">อัปเดตล่าสุด {updateTime} น.</p>
+          <p className="weather-iphone-updated">
+            {weather.source} · อัปเดตล่าสุด {updateTime} น.
+          </p>
         </header>
 
         <div className="weather-iphone-current">

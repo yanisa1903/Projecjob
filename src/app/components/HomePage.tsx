@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Search, AlertCircle, AlertTriangle, Wind, Activity, Heart, MapPinned, Star, Clock3, Banknote, LocateFixed, Navigation, Compass, Trees, Waves, Mountain, Landmark, Sun, Cloud, CloudRain, Droplets, Thermometer, CloudLightning, Sparkles, LoaderCircle, X, Info, type LucideIcon } from 'lucide-react';
+import { Search, AlertCircle, AlertTriangle, Wind, Activity, Heart, MapPin, MapPinned, Banknote, Navigation, Compass, Trees, Waves, Mountain, Landmark, Sun, Cloud, CloudRain, Droplets, Thermometer, CloudLightning, LoaderCircle, X, Info, History, Coffee, LayoutGrid, Utensils, Eye, Flame, ChevronLeft, ChevronRight, Leaf, type LucideIcon } from 'lucide-react';
 import DatePicker from './DatePicker';
 import { PlaceSearchBox } from './PlaceSearchBox';
 import AttractionCard from './AttractionCard';
@@ -21,9 +21,11 @@ import {
   type AlertLocation,
   type RegionalAlertData,
 } from '../utils/regionalAlerts';
-import { describeWeatherCode, fetchTripForecast, type TripForecast } from '../utils/tripForecast';
+import { describeWeatherCode, fetchTripForecast, getForecastLastDate, MAX_FORECAST_DAYS, type TripForecast } from '../utils/tripForecast';
+import { fetchPlaceImages } from '../utils/placeImages';
+import { fetchWindyWeather, type WindyWeather } from '../utils/windyApi';
 
-const tourismCategories = ['ทั้งหมด', 'อุทยาน', 'ทะเล', 'ภูเขา', 'วัด'] as const;
+const tourismCategories = ['ทั้งหมด', 'ทะเล', 'ภูเขา', 'ธรรมชาติ', 'น้ำตก', 'วัด', 'ประวัติศาสตร์', 'คาเฟ่', 'จุดชมวิว', 'อาหาร'] as const;
 type TourismCategory = typeof tourismCategories[number];
 type PlaceSuggestion = {
   key: string;
@@ -72,17 +74,22 @@ function getTourismCategory(type: string) {
   const value = type.toLocaleLowerCase('th');
   if (/ทะเล|ชายหาด|หาด|เกาะ|อ่าว|beach|island|bay/.test(value)) return 'ทะเล';
   if (/ภูเขา|ดอย|ยอดเขา|mountain|peak/.test(value)) return 'ภูเขา';
+  if (/น้ำตก|waterfall/.test(value)) return 'น้ำตก';
+  if (/ประวัติ|โบราณ|พิพิธภัณฑ์|historic|museum|archaeological/.test(value)) return 'ประวัติศาสตร์';
   if (/วัด|พระ|ศาสน|temple|worship/.test(value)) return 'วัด';
-  if (/อุทยาน|น้ำตก|ป่า|park|waterfall|forest/.test(value)) return 'อุทยาน';
+  if (/คาเฟ่|ร้านกาแฟ|cafe|coffee/.test(value)) return 'คาเฟ่';
+  if (/จุดชมวิว|จุดชมทิวทัศน์|viewpoint|scenic overlook|lookout/.test(value)) return 'จุดชมวิว';
+  if (/อาหาร|ร้านอาหาร|restaurant|food|dining/.test(value)) return 'อาหาร';
+  if (/อุทยาน|ป่า|สวน|park|forest|nature|reserve/.test(value)) return 'ธรรมชาติ';
   return 'สถานที่ท่องเที่ยว';
 }
 
 type AirLevel = 'safe' | 'warning' | 'danger';
 
-function classifyAqi(aqi: number, pm25: number | null): { level: AirLevel; status: string } {
-  if (aqi > 200 || (pm25 !== null && pm25 > 37.5)) return { level: 'danger', status: 'อันตราย' };
-  if (aqi > 100 || (pm25 !== null && pm25 > 15)) return { level: 'warning', status: 'ไม่ดีต่อสุขภาพ' };
-  if (aqi <= 50 && (pm25 === null || pm25 <= 15)) return { level: 'safe', status: 'ดีมาก' };
+function classifyAqi(aqi: number | null, pm25: number | null): { level: AirLevel; status: string } {
+  if ((aqi !== null && aqi > 200) || (pm25 !== null && pm25 > 37.5)) return { level: 'danger', status: 'อันตราย' };
+  if ((aqi !== null && aqi > 100) || (pm25 !== null && pm25 > 15)) return { level: 'warning', status: 'ไม่ดีต่อสุขภาพ' };
+  if (aqi !== null && aqi <= 50 && (pm25 === null || pm25 <= 15)) return { level: 'safe', status: 'ดีมาก' };
   return { level: 'safe', status: 'ดี' };
 }
 
@@ -186,6 +193,7 @@ function formatTripDateLabel(value: string) {
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const latestForecastDate = getForecastLastDate();
   const [departureDate, setDepartureDate] = useState<Date | undefined>(undefined);
   const [returnDate, setReturnDate] = useState<Date | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
@@ -194,6 +202,7 @@ export default function HomePage() {
   const [tripForecast, setTripForecast] = useState<TripForecast | null>(null);
   const [tripForecastLoading, setTripForecastLoading] = useState(false);
   const [tripForecastError, setTripForecastError] = useState('');
+  const [tripTemperatureWeather, setTripTemperatureWeather] = useState<{ placeKey: string; weather: WindyWeather } | null>(null);
   const [isTripForecastModalOpen, setIsTripForecastModalOpen] = useState(false);
   const [tatPlaces, setTatPlaces] = useState<TatAttraction[]>([]);
   const [photonPlaces, setPhotonPlaces] = useState<PlaceSearchResult[]>([]);
@@ -207,9 +216,13 @@ export default function HomePage() {
   const [regionalAlert, setRegionalAlert] = useState<RegionalAlertData | null>(null);
   const [regionalAlertLoading, setRegionalAlertLoading] = useState(true);
   const [regionalAlertError, setRegionalAlertError] = useState('');
+  const [heroRegionalAlert, setHeroRegionalAlert] = useState<RegionalAlertData | null>(null);
+  const [heroRegionalAlertLoading, setHeroRegionalAlertLoading] = useState(false);
+  const [heroRegionalAlertError, setHeroRegionalAlertError] = useState('');
+  const [temperatureWeather, setTemperatureWeather] = useState<WindyWeather | null>(null);
+  const [temperatureWeatherLoading, setTemperatureWeatherLoading] = useState(false);
   const [discoveryCategory, setDiscoveryCategory] = useState<DiscoveryCategory>('สถานที่ยอดนิยม');
   const [showAllNearby, setShowAllNearby] = useState(false);
-  const [showAllRecommendations, setShowAllRecommendations] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('favorite-attractions');
@@ -219,6 +232,9 @@ export default function HomePage() {
       return [];
     }
   });
+  const [heroImage, setHeroImage] = useState('');
+  const [destinationImages, setDestinationImages] = useState<Record<string, string>>({});
+  const recommendedTrackRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const isMarineTripDestination = Boolean(selectedPlace
     && /ทะเล|เกาะ|ชายหาด|หาด|อ่าว|พัทยา|หัวหิน|พีพี|เต่า|beach|island/i
@@ -252,9 +268,9 @@ export default function HomePage() {
       .then((forecast) => {
         setTripForecast(forecast);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!controller.signal.aborted) {
-          setTripForecastError('ไม่สามารถโหลดพยากรณ์สำหรับวันที่เลือกได้');
+          setTripForecastError(error instanceof Error ? error.message : 'ไม่สามารถโหลดพยากรณ์สำหรับวันที่เลือกได้');
         }
       })
       .finally(() => {
@@ -263,6 +279,32 @@ export default function HomePage() {
 
     return () => controller.abort();
   }, [selectedPlace, departureDate, returnDate, isMarineTripDestination]);
+
+  useEffect(() => {
+    if (!selectedPlace || !departureDate || !returnDate) {
+      setTripTemperatureWeather(null);
+      return;
+    }
+
+    const latitude = Number(selectedPlace.lat);
+    const longitude = Number(selectedPlace.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setTripTemperatureWeather(null);
+      return;
+    }
+
+    let active = true;
+    fetchWindyWeather(latitude, longitude)
+      .then((weather) => {
+        if (active) setTripTemperatureWeather({ placeKey: selectedPlace.key, weather });
+      })
+      .catch(() => {
+        if (active) setTripTemperatureWeather(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedPlace, departureDate, returnDate]);
 
   useEffect(() => {
     setIsTripForecastModalOpen(Boolean(selectedPlace && departureDate && returnDate));
@@ -315,12 +357,12 @@ export default function HomePage() {
     const resolveLocation = async () => {
       try {
         let location: AlertLocation;
-        if (gpsStatus === 'available' && gpsCoordinates) {
-          const province = await getProvinceForCoordinates(gpsCoordinates.latitude, gpsCoordinates.longitude);
-          location = { ...gpsCoordinates, province };
-        } else if (selectedProvince) {
+        if (selectedProvince) {
           const resolved = await findAlertLocation(`${selectedProvince}, Thailand`);
           location = { ...resolved, province: selectedProvince };
+        } else if (gpsStatus === 'available' && gpsCoordinates) {
+          const province = await getProvinceForCoordinates(gpsCoordinates.latitude, gpsCoordinates.longitude);
+          location = { ...gpsCoordinates, province };
         } else if (fallbackSearch.length >= 2) {
           location = await findAlertLocation(`${fallbackSearch}, Thailand`);
         } else {
@@ -381,11 +423,16 @@ export default function HomePage() {
 
     const controller = new AbortController();
     const categoryQueries: Record<TourismCategory, string[]> = {
-      ทั้งหมด: ['beach', 'waterfall', 'mountain', 'temple', 'national park'],
-      อุทยาน: ['national park'],
+      ทั้งหมด: ['beach', 'waterfall', 'mountain', 'temple', 'national park', 'historic site', 'cafe', 'viewpoint', 'restaurant'],
       ทะเล: ['beach'],
       ภูเขา: ['mountain'],
+      ธรรมชาติ: ['national park', 'forest', 'nature reserve'],
+      น้ำตก: ['waterfall'],
       วัด: ['temple'],
+      ประวัติศาสตร์: ['historic site', 'museum', 'archaeological site'],
+      คาเฟ่: ['cafe'],
+      จุดชมวิว: ['viewpoint'],
+      อาหาร: ['restaurant'],
     };
     setAttractionsLoading(true);
     setAttractionsError('');
@@ -672,9 +719,19 @@ export default function HomePage() {
     navigate(`/search?${new URLSearchParams({ q: trimmedQuery, mode: 'text' }).toString()}`);
   };
 
-  const locationOrigin = gpsCoordinates
-    || (gpsStatus === 'unavailable' && (selectedProvince || fallbackSearch) ? alertLocation : null);
-  const tripForecastDays = tripForecast?.days || [];
+  const locationOrigin = gpsCoordinates;
+  const activeTripWeather = tripTemperatureWeather && tripTemperatureWeather.placeKey === selectedPlace?.key
+    ? tripTemperatureWeather.weather
+    : null;
+  const windyTemperaturesByDate = new Map(
+    activeTripWeather?.source === 'Windy'
+      ? activeTripWeather.dailyTemperatures.map(({ date, maxTemperature }) => [date, maxTemperature])
+      : [],
+  );
+  const tripForecastDays = (tripForecast?.days || []).map((day) => ({
+    ...day,
+    maxTemperature: windyTemperaturesByDate.get(day.date) ?? day.maxTemperature,
+  }));
   const maxForecastValue = (values: Array<number | null>) => {
     const valid = values.filter((value): value is number => value !== null && Number.isFinite(value));
     return valid.length ? Math.max(...valid) : null;
@@ -684,6 +741,12 @@ export default function HomePage() {
     return valid.length ? Math.min(...valid) : null;
   };
   const forecastMaxTemperature = maxForecastValue(tripForecastDays.map((day) => day.maxTemperature));
+  const windyTemperatureDayCount = tripForecastDays.filter((day) => windyTemperaturesByDate.has(day.date)).length;
+  const forecastTemperatureSource = windyTemperatureDayCount === tripForecastDays.length && windyTemperatureDayCount > 0
+    ? 'Windy'
+    : windyTemperatureDayCount > 0
+      ? 'Windy (บางวัน) และ Open-Meteo'
+      : 'Open-Meteo';
   const forecastMinTemperature = minForecastValue(tripForecastDays.map((day) => day.minTemperature));
   const forecastRainProbability = maxForecastValue(tripForecastDays.map((day) => day.precipitationProbability));
   const forecastRainTotal = tripForecastDays.length > 0
@@ -858,8 +921,9 @@ export default function HomePage() {
   if (discoveryCategory === 'ใกล้คุณ') {
     displayedAttractions.splice(10);
   }
+  const recommendedAttractions = displayedAttractions.slice(0, 12);
   const recommendedKeys = new Set(
-    (showAllRecommendations ? displayedAttractions : displayedAttractions.slice(0, 4))
+    recommendedAttractions
       .map((attraction) => attraction.key),
   );
   const nearbyAttractions = locationOrigin
@@ -869,63 +933,177 @@ export default function HomePage() {
           && !recommendedKeys.has(attraction.key))
         .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity))
     : [];
-  const regionalAirQuality = regionalAlert?.aqi !== null && regionalAlert?.aqi !== undefined
-    ? classifyAqi(regionalAlert.aqi, regionalAlert.pm25)
+  const destinationGroups = new Map<string, { province: string; attraction: (typeof sourceAttractions)[number]; count: number }>();
+  sourceAttractions.forEach((attraction) => {
+    if (!attraction.province) return;
+    const destination = destinationGroups.get(attraction.province);
+    if (destination) {
+      destination.count += 1;
+      if (!destination.attraction.images?.[0] && attraction.images?.[0]) destination.attraction = attraction;
+      return;
+    }
+    destinationGroups.set(attraction.province, { province: attraction.province, attraction, count: 1 });
+  });
+  useEffect(() => {
+    let active = true;
+    const destinations = [...destinationGroups.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+    Promise.all(destinations.map(async ({ province, attraction }) => {
+      const image = attraction.images?.[0] || (
+        await fetchPlaceImages(attraction.title, attraction.latitude, attraction.longitude)
+      )[0] || '';
+      return [province, image] as const;
+    })).then((images) => {
+      if (active) setDestinationImages(Object.fromEntries(images.filter(([, image]) => Boolean(image))));
+    });
+    return () => {
+      active = false;
+    };
+  }, [tatPlaces, photonPlaces]);
+  const popularDestinations = [...destinationGroups.values()]
+    .filter(({ province, attraction }) => Boolean(attraction.images?.[0] || destinationImages[province]))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 4);
+  const heroAttraction = selectedPlaceAttraction || displayedAttractions[0];
+  const heroLatitude = heroAttraction?.latitude;
+  const heroLongitude = heroAttraction?.longitude;
+
+  useEffect(() => {
+    const latitude = heroLatitude ?? alertLocation?.latitude;
+    const longitude = heroLongitude ?? alertLocation?.longitude;
+    if (latitude === undefined || longitude === undefined) {
+      setTemperatureWeather(null);
+      setTemperatureWeatherLoading(false);
+      return;
+    }
+
+    let active = true;
+    setTemperatureWeather(null);
+    setTemperatureWeatherLoading(true);
+    fetchWindyWeather(latitude, longitude)
+      .then((weather) => {
+        if (active) setTemperatureWeather(weather);
+      })
+      .catch(() => {
+        if (active) setTemperatureWeather(null);
+      })
+      .finally(() => {
+        if (active) setTemperatureWeatherLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [heroLatitude, heroLongitude, alertLocation?.latitude, alertLocation?.longitude]);
+
+  useEffect(() => {
+    const existingImage = heroAttraction?.images?.[0] || '';
+    setHeroImage(existingImage);
+    if (existingImage || !heroAttraction || heroLatitude === undefined || heroLongitude === undefined) return;
+
+    let active = true;
+    fetchPlaceImages(heroAttraction.title, heroLatitude, heroLongitude)
+      .then((images) => {
+        if (active) setHeroImage(images[0] || '');
+      });
+    return () => {
+      active = false;
+    };
+  }, [heroAttraction?.key, heroAttraction?.title, heroAttraction?.images?.[0], heroLatitude, heroLongitude]);
+
+  useEffect(() => {
+    if (heroLatitude === undefined || heroLongitude === undefined) {
+      setHeroRegionalAlert(null);
+      setHeroRegionalAlertLoading(false);
+      setHeroRegionalAlertError('');
+      return;
+    }
+
+    let active = true;
+    setHeroRegionalAlert(null);
+    setHeroRegionalAlertLoading(true);
+    setHeroRegionalAlertError('');
+    fetchRegionalAlerts({ latitude: heroLatitude, longitude: heroLongitude })
+      .then((data) => {
+        if (active) setHeroRegionalAlert(data);
+      })
+      .catch(() => {
+        if (active) setHeroRegionalAlertError('ไม่สามารถโหลดข้อมูลสภาพอากาศของสถานที่นี้ได้');
+      })
+      .finally(() => {
+        if (active) setHeroRegionalAlertLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [heroAttraction?.key, heroLatitude, heroLongitude]);
+
+  const displayedRegionalAlert = heroLatitude !== undefined && heroLongitude !== undefined
+    ? heroRegionalAlert
+    : regionalAlert;
+  const displayedRegionalAlertLoading = heroLatitude !== undefined && heroLongitude !== undefined
+    ? heroRegionalAlertLoading
+    : regionalAlertLoading;
+  const displayedRegionalAlertError = heroLatitude !== undefined && heroLongitude !== undefined
+    ? heroRegionalAlertError
+    : regionalAlertError;
+  const regionalAirQuality = displayedRegionalAlert?.aqi != null || displayedRegionalAlert?.pm25 != null
+    ? classifyAqi(displayedRegionalAlert?.aqi ?? null, displayedRegionalAlert?.pm25 ?? null)
     : null;
-  const hasRegionalHeavyRain = regionalAlert ? hasHeavyRain(regionalAlert) : false;
-  const hasRegionalFloodRisk = regionalAlert ? hasHighFloodRisk(regionalAlert) : false;
-  const activeRegionalAlerts = regionalAlert
+  const hasRegionalHeavyRain = displayedRegionalAlert ? hasHeavyRain(displayedRegionalAlert) : false;
+  const hasRegionalFloodRisk = displayedRegionalAlert ? hasHighFloodRisk(displayedRegionalAlert) : false;
+  const activeRegionalAlerts = displayedRegionalAlert
     ? [
         hasRegionalHeavyRain && {
           icon: CloudRain,
           title: hasRegionalFloodRisk ? 'ฝนหนัก เสี่ยงน้ำท่วมฉับพลัน/น้ำป่าไหลหลาก' : 'แจ้งเตือนฝนตกหนัก',
-          detail: `ฝนขณะนี้ ${regionalAlert.currentRain?.toFixed(1) ?? '—'} มม. · คาดการณ์สูงสุด 3 ชม. ${regionalAlert.nextThreeHoursRain?.toFixed(1) ?? '—'} มม.`,
+          detail: `ฝนขณะนี้ ${displayedRegionalAlert.currentRain?.toFixed(1) ?? '—'} มม. · คาดการณ์สูงสุด 3 ชม. ${displayedRegionalAlert.nextThreeHoursRain?.toFixed(1) ?? '—'} มม.`,
         },
-        regionalAlert.rainProbability !== null
-          && regionalAlert.rainProbability >= 70
+        displayedRegionalAlert.rainProbability !== null
+          && displayedRegionalAlert.rainProbability >= 70
           && !hasRegionalHeavyRain && {
             icon: CloudRain,
             title: 'คาดการณ์มีโอกาสฝนสูง',
-            detail: `โอกาสฝนใน 3 ชม. ${Math.round(regionalAlert.rainProbability)}% · ฝนสูงสุด ${regionalAlert.nextThreeHoursRain?.toFixed(1) ?? '—'} มม.`,
+            detail: `โอกาสฝนใน 3 ชม. ${Math.round(displayedRegionalAlert.rainProbability)}% · ฝนสูงสุด ${displayedRegionalAlert.nextThreeHoursRain?.toFixed(1) ?? '—'} มม.`,
           },
         hasRegionalFloodRisk && {
           icon: Waves,
           title: 'คาดการณ์พื้นที่เสี่ยงน้ำท่วม',
-          detail: `ฝนสูงสุด ${regionalAlert.nextThreeDaysRain?.toFixed(1) ?? '—'} มม./วัน${
-            regionalAlert.riverDischarge
-              ? ` · คาดการณ์ปริมาณน้ำไหล ${regionalAlert.riverDischarge[0].toFixed(1)} ม³/วินาที`
+          detail: `ฝนสูงสุด ${displayedRegionalAlert.nextThreeDaysRain?.toFixed(1) ?? '—'} มม./วัน${
+            displayedRegionalAlert.riverDischarge
+              ? ` · คาดการณ์ปริมาณน้ำไหล ${displayedRegionalAlert.riverDischarge[0].toFixed(1)} ม³/วินาที`
               : ''
           }`,
         },
-        hasHighPm25(regionalAlert) && {
+        hasHighPm25(displayedRegionalAlert) && {
           icon: Activity,
           title: 'แจ้งเตือนฝุ่น',
-          detail: `PM2.5 ${regionalAlert.pm25?.toFixed(1) ?? '—'} µg/m³`,
+          detail: `PM2.5 ${displayedRegionalAlert.pm25?.toFixed(1) ?? '—'} µg/m³`,
         },
-        regionalAirQuality?.level === 'warning' && !hasHighPm25(regionalAlert) && {
+        regionalAirQuality?.level === 'warning' && !hasHighPm25(displayedRegionalAlert) && {
           icon: Activity,
           title: 'คุณภาพอากาศควรระวัง',
-          detail: `PM2.5 ${regionalAlert.pm25?.toFixed(1) ?? '—'} µg/m³ · AQI ${regionalAlert.aqi ?? '—'}`,
+          detail: `PM2.5 ${displayedRegionalAlert.pm25?.toFixed(1) ?? '—'} µg/m³ · AQI ${displayedRegionalAlert.aqi ?? '—'}`,
         },
-        typeof regionalAlert.temperature === 'number' && regionalAlert.temperature >= 35 && {
+        typeof displayedRegionalAlert.temperature === 'number' && displayedRegionalAlert.temperature >= 35 && {
           icon: Thermometer,
           title: 'แจ้งเตือนอากาศร้อนจัด',
-          detail: `${regionalAlert.temperature.toFixed(1)}°C`,
+          detail: `${displayedRegionalAlert.temperature.toFixed(1)}°C`,
         },
-        typeof regionalAlert.windGusts === 'number' && regionalAlert.windGusts >= 60 && {
+        typeof displayedRegionalAlert.windGusts === 'number' && displayedRegionalAlert.windGusts >= 60 && {
           icon: Wind,
           title: 'แจ้งเตือนลมแรง',
-          detail: `ลมกระโชก ${regionalAlert.windGusts.toFixed(0)} กม./ชม.`,
+          detail: `ลมกระโชก ${displayedRegionalAlert.windGusts.toFixed(0)} กม./ชม.`,
         },
-        typeof regionalAlert.weatherCode === 'number' && regionalAlert.weatherCode >= 95 && {
+        typeof displayedRegionalAlert.weatherCode === 'number' && displayedRegionalAlert.weatherCode >= 95 && {
           icon: CloudLightning,
           title: 'แจ้งเตือนพายุฝนฟ้าคะนอง',
-          detail: `ลม ${regionalAlert.windSpeed?.toFixed(0) ?? '—'} กม./ชม.`,
+          detail: `ลม ${displayedRegionalAlert.windSpeed?.toFixed(0) ?? '—'} กม./ชม.`,
         },
       ].filter((alert): alert is { icon: LucideIcon; title: string; detail: string } => Boolean(alert))
     : [];
   const regionalAlertHasIssues = activeRegionalAlerts.length > 0
-    || Boolean(regionalAlert?.unavailableSources?.length)
+    || Boolean(displayedRegionalAlert?.unavailableSources?.length)
     || regionalAirQuality?.level === 'warning'
     || regionalAirQuality?.level === 'danger';
   const regionalAlertIsDanger = regionalAirQuality?.level === 'danger'
@@ -934,90 +1112,83 @@ export default function HomePage() {
   const alertCardColors = regionalAlertIsDanger
     ? { card: 'border-red-500 bg-red-50', icon: 'bg-red-500', text: 'text-red-800', detail: 'text-red-700', badge: 'bg-red-500', advice: 'bg-red-100 text-red-800' }
     : regionalAlertHasIssues
-      ? { card: 'border-orange-400 bg-orange-50', icon: 'bg-orange-400', text: 'text-orange-800', detail: 'text-orange-700', badge: 'bg-orange-400', advice: 'bg-orange-100 text-orange-800' }
-      : { card: 'border-green-500 bg-green-50', icon: 'bg-green-500', text: 'text-green-800', detail: 'text-green-700', badge: 'bg-green-500', advice: 'bg-green-100 text-green-800' };
-  const CurrentWeatherIcon = !regionalAlert?.weatherCode
+      ? { card: 'border-amber-400 bg-amber-50', icon: 'bg-amber-400', text: 'text-amber-800', detail: 'text-amber-700', badge: 'bg-amber-400', advice: 'bg-amber-100 text-amber-800' }
+      : displayedRegionalAlert
+        ? { card: 'border-green-500 bg-green-50', icon: 'bg-green-500', text: 'text-green-800', detail: 'text-green-700', badge: 'bg-green-500', advice: 'bg-green-100 text-green-800' }
+        : { card: 'border-slate-200 bg-slate-50', icon: 'bg-slate-500', text: 'text-slate-700', detail: 'text-slate-600', badge: 'bg-slate-500', advice: 'bg-slate-100 text-slate-700' };
+  const CurrentWeatherIcon = !displayedRegionalAlert?.weatherCode
     ? Cloud
-    : regionalAlert.weatherCode >= 95
+    : displayedRegionalAlert.weatherCode >= 95
       ? CloudLightning
-      : [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(regionalAlert.weatherCode)
+      : [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(displayedRegionalAlert.weatherCode)
         ? CloudRain
-        : regionalAlert.weatherCode === 0
+        : displayedRegionalAlert.weatherCode === 0
           ? Sun
           : Cloud;
   const currentWeatherCard = (
-    <section className="w-full rounded-2xl border border-white/70 bg-white/95 p-4 text-slate-700 shadow-lg backdrop-blur-md lg:w-72">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <MapPinned className="h-4 w-4 shrink-0 text-[#1F2E7A]" />
-          <h2 className="truncate text-xs font-bold text-[#1F2E7A]">
-            {alertLocation ? `จังหวัด${alertLocation.province} ตอนนี้` : 'สภาพอากาศตำแหน่งปัจจุบัน'}
+    <section className={`w-full max-w-[320px] self-center overflow-hidden rounded-xl border p-3 text-slate-700 shadow-lg backdrop-blur-md lg:max-w-none lg:w-72 xl:absolute xl:right-8 xl:top-8 ${alertCardColors.card}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <MapPinned className={`h-3.5 w-3.5 shrink-0 ${alertCardColors.text}`} />
+          <h2 className={`truncate text-[11px] font-bold ${alertCardColors.text}`}>
+            {heroAttraction?.province
+              ? `จังหวัด${heroAttraction.province} ตอนนี้`
+              : alertLocation ? `จังหวัด${alertLocation.province} ตอนนี้` : 'สภาพอากาศตำแหน่งปัจจุบัน'}
           </h2>
         </div>
-        <CurrentWeatherIcon className={`h-6 w-6 shrink-0 text-sky-600 ${regionalAlertLoading && !regionalAlert ? 'animate-pulse' : ''}`} aria-hidden="true" />
-      </div>
-      <div className="mt-2 flex items-end justify-between gap-3">
-        <p className="text-3xl font-black leading-none text-[#1F2E7A]">
-          {regionalAlert?.temperature != null
-            ? `${regionalAlert.temperature.toFixed(1)}°C`
-            : regionalAlertLoading ? '…' : '—'}
-        </p>
-        <p className="text-right text-xs font-medium text-slate-600">
-          {regionalAlert?.weatherDescription || (regionalAlertLoading ? 'กำลังโหลดข้อมูล' : 'ไม่มีข้อมูลสภาพอากาศ')}
-        </p>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3 text-[11px] text-slate-600">
-        <p className="inline-flex items-center gap-1.5"><CloudRain className="h-3.5 w-3.5 text-sky-600" />ฝน {regionalAlert?.rainProbability != null ? `${Math.round(regionalAlert.rainProbability)}%` : '—'}</p>
-        <p className="inline-flex items-center gap-1.5"><Wind className="h-3.5 w-3.5 text-sky-600" />ลม {regionalAlert?.windSpeed != null ? `${Math.round(regionalAlert.windSpeed)} กม./ชม.` : '—'}</p>
-        <p className="inline-flex items-center gap-1.5"><Droplets className="h-3.5 w-3.5 text-sky-600" />ความชื้น {regionalAlert?.humidity != null ? `${Math.round(regionalAlert.humidity)}%` : '—'}</p>
-        <p className="inline-flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-sky-600" />PM2.5 {regionalAlert?.pm25 != null ? `${regionalAlert.pm25.toFixed(1)} µg/m³` : '—'}</p>
-      </div>
-      {regionalAlert?.updatedAt && (
-        <p className="mt-2 text-right text-[10px] text-slate-400">
-          อัปเดต {new Date(regionalAlert.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-        </p>
-      )}
-    </section>
-  );
-  const riskSummaryCard = (
-    <section className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md lg:w-52 ${alertCardColors.card}`}>
-      <div className="flex items-center gap-2.5">
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${alertCardColors.icon}`}>
-          {regionalAlertIsDanger ? <AlertTriangle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+        <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${alertCardColors.icon}`}>
+          {regionalAlertIsDanger ? <AlertTriangle className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+          {displayedRegionalAlertLoading && !displayedRegionalAlert
+            ? 'กำลังตรวจสอบ'
+            : displayedRegionalAlertError || !displayedRegionalAlert
+              ? 'ไม่มีข้อมูล'
+              : regionalAlertIsDanger
+                ? 'เสี่ยงสูง'
+                : regionalAlertHasIssues ? 'ควรระวัง' : 'ปกติ'}
         </span>
-        <div className="min-w-0">
-          <p className={`text-xs font-semibold ${alertCardColors.text}`}>ระดับความเสี่ยง</p>
-          <p className={`text-base font-extrabold leading-tight ${alertCardColors.text}`}>
-            {regionalAlertLoading && !regionalAlert
-              ? 'กำลังตรวจสอบ'
-              : regionalAlertError
-                ? 'ข้อมูลไม่พร้อม'
-                : regionalAlertIsDanger
-                  ? 'ความเสี่ยงสูง'
-                  : regionalAlertHasIssues
-                    ? 'ควรระวัง'
-                    : regionalAlert ? 'สถานการณ์ปกติ' : 'ไม่มีข้อมูล'}
+      </div>
+
+      <div className="mt-2 flex items-center gap-2.5">
+        <CurrentWeatherIcon className={`h-7 w-7 shrink-0 text-sky-600 ${displayedRegionalAlertLoading && !displayedRegionalAlert ? 'animate-pulse' : ''}`} aria-hidden="true" />
+        <p className={`text-2xl font-black leading-none ${alertCardColors.text}`}>
+          {temperatureWeather?.currentTemperature != null
+            ? `${temperatureWeather.currentTemperature}°C`
+            : temperatureWeatherLoading ? '…' : 'ไม่มีข้อมูล'}
+        </p>
+        <div className="min-w-0 flex-1 text-right">
+          <p className={`truncate text-[11px] font-medium ${alertCardColors.text}`}>
+            {displayedRegionalAlert?.weatherDescription || (displayedRegionalAlertLoading ? 'กำลังโหลดข้อมูล' : 'ไม่มีข้อมูลสภาพอากาศ')}
+          </p>
+          <p className={`mt-0.5 text-[9px] ${alertCardColors.detail}`}>
+            {temperatureWeather ? temperatureWeather.source : temperatureWeatherLoading ? 'กำลังโหลดอุณหภูมิ…' : 'ไม่มีข้อมูลอุณหภูมิ'}
           </p>
         </div>
       </div>
-      <p className={`mt-3 text-xs font-medium leading-relaxed ${alertCardColors.text}`}>
-        {regionalAlertLoading && !regionalAlert
-          ? 'กำลังตรวจสอบข้อมูลล่าสุด…'
-          : regionalAlertError
-            ? regionalAlertError
-            : activeRegionalAlerts[0]?.title
-              || (regionalAlert?.unavailableSources?.length
-                ? `ไม่สามารถตรวจสอบ${regionalAlert.unavailableSources.join(' และ ')}ได้`
-                : regionalAlert ? 'ไม่พบความเสี่ยงจากข้อมูลที่ตรวจสอบได้' : 'ยังไม่มีข้อมูลความเสี่ยง')}
-      </p>
-      {activeRegionalAlerts[0]?.detail && (
-        <p className={`mt-1.5 text-[11px] leading-relaxed ${alertCardColors.detail}`}>
-          {activeRegionalAlerts[0].detail}
+
+      <div className={`mt-2 grid grid-cols-2 gap-x-2 gap-y-1 border-t border-slate-300/50 pt-2 text-[10px] ${alertCardColors.detail}`}>
+        <p className="inline-flex items-center gap-1"><CloudRain className="h-3 w-3 shrink-0" />ฝน {displayedRegionalAlert?.rainProbability != null ? `${Math.round(displayedRegionalAlert.rainProbability)}%` : 'ไม่มีข้อมูล'}</p>
+        <p className="inline-flex items-center gap-1"><Activity className="h-3 w-3 shrink-0" />PM2.5 {displayedRegionalAlert?.pm25 != null ? `${displayedRegionalAlert.pm25.toFixed(1)} µg/m³` : 'ไม่มีข้อมูล'}</p>
+        <p className="inline-flex items-center gap-1"><Wind className="h-3 w-3 shrink-0" />ลม {displayedRegionalAlert?.windSpeed != null ? `${Math.round(displayedRegionalAlert.windSpeed)} กม./ชม.` : 'ไม่มีข้อมูล'}</p>
+        <p className="inline-flex items-center gap-1"><Droplets className="h-3 w-3 shrink-0" />ความชื้น {displayedRegionalAlert?.humidity != null ? `${Math.round(displayedRegionalAlert.humidity)}%` : 'ไม่มีข้อมูล'}</p>
+      </div>
+
+      <div className={`mt-2 flex items-start justify-between gap-2 border-t border-slate-300/50 pt-1.5 text-[9px] leading-snug ${alertCardColors.detail}`}>
+        <p className="min-w-0">
+          {displayedRegionalAlertLoading && !displayedRegionalAlert
+            ? 'กำลังตรวจสอบข้อมูลล่าสุด…'
+            : displayedRegionalAlertError
+              ? displayedRegionalAlertError
+              : activeRegionalAlerts[0]?.title
+                || (displayedRegionalAlert?.unavailableSources?.length
+                  ? `ตรวจสอบ${displayedRegionalAlert.unavailableSources.join(' และ ')}ไม่ได้`
+                  : displayedRegionalAlert ? 'ไม่พบความเสี่ยงจากข้อมูลที่ตรวจสอบได้' : 'ยังไม่มีข้อมูลความเสี่ยง')}
+          {activeRegionalAlerts[0]?.detail && ` · ${activeRegionalAlerts[0].detail}`}
         </p>
-      )}
-      {regionalAlert?.aqi != null && (
-        <p className={`mt-2 text-xs font-bold ${alertCardColors.text}`}>AQI {regionalAlert.aqi}</p>
-      )}
+        <span className="shrink-0 font-bold">
+          {displayedRegionalAlert?.aqi != null ? `AQI ${displayedRegionalAlert.aqi}` : ''}
+          {displayedRegionalAlert?.updatedAt && ` · ${new Date(displayedRegionalAlert.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`}
+        </span>
+      </div>
     </section>
   );
 
@@ -1069,114 +1240,116 @@ export default function HomePage() {
       {/* Mobile Frame */}
       <div className="app-shell shadow-xl lg:shadow-none">
         {/* Header */}
-        <header className="border-b border-slate-100 bg-white/95 px-4 pb-3 pt-12 shadow-sm backdrop-blur-sm sm:px-6 lg:px-8">
-          <div className="flex w-full items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-[#1F2E7A]">
-                  <MapPinned className="h-4 w-4" />
-                </div>
-                <h1 className="text-xl font-bold text-[#1F2E7A]">Thailand</h1>
-              </div>
-            </div>
+        <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 px-4 shadow-sm backdrop-blur-xl sm:px-6 lg:px-8">
+          <div className="flex min-h-[68px] w-full items-center justify-between gap-4">
+            <a href="#home" className="flex shrink-0 items-center gap-2.5" aria-label="ไปไหนดี หน้าหลัก">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-[#1F2E7A]">
+                <MapPinned className="h-5 w-5" />
+              </span>
+              <span className="text-lg font-extrabold tracking-tight text-[#1F2E7A] sm:text-xl">ไปไหนดี</span>
+            </a>
 
-            <div className="flex items-center gap-2">
-              <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 sm:flex">
-                <LocateFixed className="h-3.5 w-3.5 text-[#1F2E7A]" />
-                {alertLocation ? `จังหวัด${alertLocation.province}` : selectedProvince || 'เลือกจังหวัด'}
-              </div>
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <Link
                 to="/favorites"
                 aria-label={`รายการโปรด ${favoriteIds.length} สถานที่`}
-                className="relative flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-[#1F2E7A] transition hover:bg-slate-200"
+                className="relative flex h-10 items-center justify-center gap-2 rounded-full px-2 text-[#1F2E7A] transition hover:bg-blue-50 sm:px-3"
               >
                 <Heart className="h-4 w-4" />
+                <span className="hidden text-sm font-medium xl:inline">รายการโปรด</span>
                 {favoriteIds.length > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                  <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
                     {favoriteIds.length}
                   </span>
                 )}
               </Link>
             </div>
           </div>
-
         </header>
 
         {/* Content */}
-        <div className="app-content">
-          <section className="relative z-30 mb-4 overflow-visible rounded-[24px] bg-slate-100 shadow-sm ring-1 ring-slate-200">
-            <div className="relative min-h-[280px] rounded-[24px] bg-cover bg-center sm:min-h-[300px]" style={{ backgroundImage: `linear-gradient(90deg, rgba(10,37,86,0.82), rgba(12,74,110,0.2)), url(${displayedAttractions[0]?.images?.[0] || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1600&q=85'})` }}>
-              <div className="relative z-30 flex min-h-[280px] flex-col justify-between gap-5 p-4 sm:min-h-[300px] sm:p-6 lg:min-h-[310px] lg:p-8">
-                <div className="w-full max-w-2xl lg:max-w-[calc(100%-31rem)]">
-                  <p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-sky-100">Let&apos;s Explore</p>
-                  <h1 className="text-[clamp(1.75rem,4vw,3rem)] font-black leading-tight text-white">ทุกการเดินทาง มีเรื่องราวเสมอ</h1>
-                  <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/95 sm:text-base">
-                    ค้นพบสถานที่ใหม่ๆ พร้อมข้อมูลสภาพอากาศและความปลอดภัย
-                    <br />ให้ทุกทริปเต็มไปด้วยความประทับใจ
+        <div id="home" className="app-content mx-auto max-w-[1440px]">
+          <section className="relative z-30 mb-6 -ml-3 w-screen overflow-visible md:-ml-[clamp(1rem,2.5vw,2.75rem)]">
+            <div
+              className="relative min-h-[440px] overflow-visible bg-cover bg-center sm:min-h-[430px] lg:min-h-[390px]"
+              style={{ backgroundImage: `linear-gradient(90deg, rgba(5,31,75,.88) 0%, rgba(5,54,103,.62) 48%, rgba(3,57,91,.18) 100%), url("${heroImage || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1800&q=85'}")` }}
+            >
+              <div className="relative z-30 flex min-h-[440px] flex-col justify-between gap-5 p-5 pb-6 sm:min-h-[430px] sm:p-7 lg:min-h-[390px] lg:p-9">
+                <div className="w-full max-w-2xl lg:max-w-[calc(100%-34rem)]">
+                  <a href="#home" className="inline-flex items-center gap-2 text-xs font-semibold text-blue-100/90 transition hover:text-white">
+                    <Navigation className="h-3.5 w-3.5" /> ไปไหนดี · เที่ยวไทยในแบบคุณ
+                  </a>
+                  <h1 className="mt-3 text-[clamp(2.1rem,5vw,3.6rem)] font-black leading-tight tracking-tight text-white">
+                    ค้นพบเสน่ห์เมืองไทย
+                  </h1>
+                  <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/90 sm:text-base">
+                    ค้นหาสถานที่ที่ใช่ วางแผนวันเดินทาง และออกไปเก็บเรื่องราวดี ๆ ในทุกจังหวัด
                   </p>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:hidden">
-                  {currentWeatherCard}
-                  {riskSummaryCard}
-                </div>
-
-                <PlaceSearchBox
-                  value={searchQuery}
-                  onChange={(value) => {
-                    setSearchQuery(value);
-                    setSelectedProvince('');
-                    setSelectedPlace(null);
-                    setSearchFlowMessage('');
-                  }}
-                  onPlaceSelect={handlePlaceSelect}
-                  onExplore={handleExploreOption}
-                  onSearch={handleTextSearch}
-                  inputClassName="h-12 w-full rounded-xl border border-white/70 bg-white px-5 pr-14 text-sm text-slate-700 shadow-lg outline-none ring-0 placeholder:text-slate-400 focus:border-white"
-                  searchButtonClassName="flex h-10 w-10 items-center justify-center rounded-xl bg-[#1F2E7A] p-0 text-white shadow-md transition hover:bg-[#162056]"
-                  dropdownClassName="max-h-72 rounded-2xl py-1"
-                  containerClassName="max-w-[min(100%,760px)]"
-                />
-              </div>
-
-              <div className="absolute right-10 top-5 z-20 hidden items-stretch gap-2 lg:flex">
                 {currentWeatherCard}
-                {riskSummaryCard}
+
+                <section id="place-search" aria-label="ค้นหาสถานที่และเลือกวันเดินทาง" className="mx-auto grid w-full max-w-[1280px] scroll-mt-24 gap-2 self-center rounded-2xl border border-white/70 bg-white p-2 shadow-xl sm:p-2.5 lg:grid-cols-[minmax(220px,1fr)_170px_170px_auto]">
+                  <PlaceSearchBox
+                    value={searchQuery}
+                    onChange={(value) => {
+                      setSearchQuery(value);
+                      setSelectedProvince('');
+                      setSelectedPlace(null);
+                      setSearchFlowMessage('');
+                    }}
+                    onPlaceSelect={handlePlaceSelect}
+                    onExplore={handleExploreOption}
+                    onSearch={handleTextSearch}
+                    inputClassName="h-11 w-full rounded-xl border-0 bg-slate-50 px-4 pr-12 text-sm text-slate-700 outline-none ring-1 ring-transparent placeholder:text-slate-400 focus:bg-white focus:ring-blue-200"
+                    searchButtonClassName="flex h-9 w-9 items-center justify-center rounded-full bg-[#0754A5] p-0 text-white shadow-sm transition hover:bg-[#1F2E7A]"
+                    dropdownClassName="max-h-72 rounded-2xl py-1"
+                    containerClassName="min-w-0"
+                  />
+                  <DatePicker
+                    placeholder="วันเดินทาง"
+                    selected={departureDate}
+                    onSelect={(date) => {
+                      setDepartureDate(date);
+                      if (!date || (returnDate && (returnDate < date || returnDate > latestForecastDate))) setReturnDate(undefined);
+                      setSearchFlowMessage('');
+                    }}
+                    minDate={new Date()}
+                    maxDate={latestForecastDate}
+                  />
+                  <DatePicker
+                    placeholder="วันกลับ"
+                    selected={returnDate}
+                    disabled={!departureDate}
+                    onSelect={(date) => {
+                      setReturnDate(date);
+                      setSearchFlowMessage('');
+                    }}
+                    minDate={departureDate || new Date()}
+                    maxDate={latestForecastDate}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => searchQuery.trim()
+                      ? handleTextSearch(searchQuery)
+                      : document.getElementById('recommended-attractions')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0754A5] px-5 text-sm font-bold text-white transition hover:bg-[#1F2E7A]"
+                  >
+                    <Search className="h-4 w-4" /> ค้นหา
+                  </button>
+                  {searchFlowMessage && (
+                    <p role="status" className="px-3 pb-1 text-sm text-rose-600 lg:col-span-full">
+                      {searchFlowMessage}
+                    </p>
+                  )}
+                  {selectedPlace && (
+                    <p className="px-3 pb-1 text-xs leading-relaxed text-slate-500 lg:col-span-full">
+                      เลือกวันเดินทางและวันกลับเพื่อประเมินพยากรณ์ของ{selectedPlace.title}ตามพิกัดสถานที่
+                    </p>
+                  )}
+                </section>
               </div>
             </div>
-          </section>
-
-          <section id="trip-dates" aria-label="เลือกวันเดินทาง" className="mb-5 grid grid-cols-1 gap-2 scroll-mt-24 sm:grid-cols-2 sm:gap-3">
-            <DatePicker
-              placeholder="เลือกวันเดินทาง"
-              selected={departureDate}
-              onSelect={(date) => {
-                setDepartureDate(date);
-                if (!date || (returnDate && returnDate < date)) setReturnDate(undefined);
-                setSearchFlowMessage('');
-              }}
-              minDate={new Date()}
-            />
-            <DatePicker
-              placeholder="เลือกวันกลับ"
-              selected={returnDate}
-              disabled={!departureDate}
-              onSelect={(date) => {
-                setReturnDate(date);
-                setSearchFlowMessage('');
-              }}
-              minDate={departureDate || new Date()}
-            />
-            {searchFlowMessage && (
-              <p role="status" className="col-span-2 -mt-1 text-sm text-rose-600">
-                {searchFlowMessage}
-              </p>
-            )}
-            <p className="col-span-2 -mt-1 text-xs leading-relaxed text-slate-500">
-              {selectedPlace
-                ? `เลือกวันเดินทางและวันกลับเพื่อประเมินพยากรณ์ของ${selectedPlace.title}ตามพิกัดสถานที่`
-                : ''}
-            </p>
           </section>
 
           {selectedPlace && departureDate && returnDate && (
@@ -1237,9 +1410,9 @@ export default function HomePage() {
                     <>
                       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                     {(forecastMaxTemperature !== null || forecastMinTemperature !== null) && <div className="rounded-xl border border-white/80 bg-white/80 p-3">
-                      <p className="flex items-center gap-1.5 text-xs text-slate-500"><Thermometer className="h-4 w-4" />อุณหภูมิสูงสุด</p>
+                      <p className="flex items-center gap-1.5 text-xs text-slate-500"><Thermometer className="h-4 w-4" />อุณหภูมิสูงสุด · {forecastTemperatureSource}</p>
                       {forecastMaxTemperature !== null && <p className="mt-1 font-semibold text-slate-800">{Math.round(forecastMaxTemperature)}°C</p>}
-                      {forecastMinTemperature !== null && <p className="text-xs text-slate-500">ต่ำสุด {Math.round(forecastMinTemperature)}°C</p>}
+                      {forecastMinTemperature !== null && <p className="text-xs text-slate-500">ต่ำสุด {Math.round(forecastMinTemperature)}°C · Open-Meteo</p>}
                     </div>}
                     {(forecastRainProbability !== null || forecastRainTotal !== null) && <div className="rounded-xl border border-white/80 bg-white/80 p-3">
                       <p className="flex items-center gap-1.5 text-xs text-slate-500"><CloudRain className="h-4 w-4" />โอกาสฝนสูงสุด</p>
@@ -1297,20 +1470,26 @@ export default function HomePage() {
             )
           )}
 
-          <section className="mb-5">
-            <div className="mb-2">
-              <h2 className="text-xl font-bold text-[#1F2E7A]">ประเภทสถานที่ท่องเที่ยว</h2>
-              <p className="mt-1 text-xs text-slate-500"></p>
+          <div className="space-y-7">
+          <section id="categories" className="scroll-mt-24">
+            <div className="mb-3">
+              <h2 className="text-lg font-bold text-[#1F2E7A] sm:text-xl">ประเภทสถานที่ท่องเที่ยว</h2>
+              <p className="mt-1 text-sm text-slate-500">เลือกหมวดหมู่เพื่อค้นพบจุดหมายที่ใช่สำหรับคุณ</p>
             </div>
-            <div className="grid grid-cols-5 gap-2 sm:flex sm:gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 2xl:grid-cols-10">
               {tourismCategories.map((category, index) => {
-                const categoryIcons = [Compass, Trees, Waves, Mountain, Landmark];
+                const categoryIcons = [LayoutGrid, Waves, Mountain, Trees, CloudRain, Landmark, History, Coffee, Eye, Utensils];
                 const categoryColors = [
                   'bg-blue-50 text-blue-700',
+                  'bg-cyan-50 text-cyan-700',
+                  'bg-violet-50 text-violet-700',
                   'bg-emerald-50 text-emerald-700',
                   'bg-sky-50 text-sky-700',
+                  'bg-amber-50 text-amber-700',
                   'bg-orange-50 text-orange-700',
-                  'bg-violet-50 text-violet-700',
+                  'bg-rose-50 text-rose-700',
+                  'bg-indigo-50 text-indigo-700',
+                  'bg-amber-50 text-amber-700',
                 ];
                 const CategoryIcon = categoryIcons[index];
                 return (
@@ -1319,65 +1498,159 @@ export default function HomePage() {
                     type="button"
                     onClick={() => setSelectedCategory((current) => current === category ? 'ทั้งหมด' : category)}
                     aria-pressed={selectedCategory === category}
-                    className={`flex min-w-0 flex-col items-center gap-1 rounded-xl border border-slate-100 px-2 py-2 text-xs shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${selectedCategory === category ? 'ring-2 ring-[#1F2E7A]' : ''} ${categoryColors[index]}`}
+                    className={`flex min-h-[94px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl border bg-white px-2 py-3 text-sm font-semibold shadow-[0_3px_14px_rgba(31,46,122,0.06)] transition hover:-translate-y-0.5 hover:shadow-md ${selectedCategory === category ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-100'}`}
                   >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/80"><CategoryIcon className="h-5 w-5" /></span>
-                    <span className="font-semibold">{category}</span>
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${categoryColors[index]}`}>
+                      <CategoryIcon className="h-5 w-5" />
+                    </span>
+                    <span className="text-slate-700">{category}</span>
                   </button>
                 );
               })}
             </div>
           </section>
 
-          <div className="mb-6">
           <section id="recommended-attractions" className="min-w-0 scroll-mt-24">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-bold text-[#1F2E7A]">สถานที่แนะนำสำหรับคุณ</h2>
-                <p className="mt-1 text-xs text-slate-500"></p>
+              <div className="flex items-start gap-2">
+                <Flame className="mt-0.5 h-5 w-5 shrink-0 fill-blue-600 text-blue-600" />
+                <div>
+                  <h2 className="text-lg font-bold leading-tight text-[#1F2E7A] sm:text-xl">สถานที่แนะนำ</h2>
+                  <p className="mt-1 text-xs text-slate-500 sm:text-sm">คัดสรรสถานที่สวย ๆ ที่ไม่ควรพลาด</p>
+                </div>
               </div>
-              {displayedAttractions.length > 4 && (
+              <div className="flex items-center gap-2">
+                <a
+                  href="#categories"
+                  className="hidden rounded-full px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 sm:inline-flex"
+                >
+                  เลือกหมวดหมู่
+                </a>
                 <button
                   type="button"
-                  onClick={() => setShowAllRecommendations((current) => !current)}
-                  className="text-sm font-medium text-[#1F2E7A] hover:text-blue-700"
+                  aria-label="เลื่อนสถานที่แนะนำไปทางซ้าย"
+                  onClick={() => recommendedTrackRef.current?.scrollBy({ left: -480, behavior: 'smooth' })}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
                 >
-                  {showAllRecommendations ? 'ดูน้อยลง ↑' : 'ดูทั้งหมด →'}
+                  <ChevronLeft className="h-4 w-4" />
                 </button>
-              )}
+                <button
+                  type="button"
+                  aria-label="เลื่อนสถานที่แนะนำไปทางขวา"
+                  onClick={() => recommendedTrackRef.current?.scrollBy({ left: 480, behavior: 'smooth' })}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div
+              ref={recommendedTrackRef}
+              className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2"
+              aria-label="รายการสถานที่แนะนำ"
+            >
               {attractionsLoading ? (
-                <p className="col-span-full rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-500" role="status">
+                <p className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-500" role="status">
                   กำลังโหลดสถานที่ท่องเที่ยวจากแหล่งข้อมูลจริง…
                 </p>
               ) : attractionsError ? (
-                <p className="col-span-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-8 text-center text-sm text-amber-800" role="alert">
+                <p className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-8 text-center text-sm text-amber-800" role="alert">
                   {attractionsError}
                 </p>
               ) : displayedAttractions.length === 0 ? (
-                <p className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+                <p className="w-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
                   ไม่พบสถานที่จากข้อมูลที่เชื่อมต่อ ลองเลือกหมวดหมู่อื่นหรือค้นหาสถานที่
                 </p>
-              ) : (showAllRecommendations ? displayedAttractions : displayedAttractions.slice(0, 4)).map((attraction) => (
-                <AttractionCard
-                  key={attraction.key}
-                  attraction={attraction}
-                  isFavorite={favoriteIds.includes(attraction.key)}
-                  onToggleFavorite={() => toggleAttractionFavorite(attraction)}
-                  variant="recommended"
-                />
+              ) : recommendedAttractions.map((attraction) => (
+                <div key={attraction.key} className="w-[min(78vw,220px)] shrink-0 snap-start sm:w-[220px]">
+                  <AttractionCard
+                    attraction={attraction}
+                    isFavorite={favoriteIds.includes(attraction.key)}
+                    onToggleFavorite={() => toggleAttractionFavorite(attraction)}
+                    variant="recommended"
+                  />
+                </div>
               ))}
+            </div>
+          </section>
+
+          <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,.85fr)]">
+          <section id="popular-destinations" className="scroll-mt-24 rounded-2xl bg-gradient-to-br from-sky-50 to-blue-50 p-4 sm:p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Flame className="h-5 w-5 fill-blue-600 text-blue-600" />
+              <h2 className="text-base font-bold tracking-tight text-[#1F2E7A] sm:text-lg">จุดหมายยอดนิยม</h2>
+            </div>
+            {popularDestinations.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {popularDestinations.map(({ province, attraction }) => (
+                  <button
+                    key={province}
+                    type="button"
+                    onClick={() => {
+                      setSelectedPlace(null);
+                      setSearchQuery(province);
+                      setSearchFlowMessage('');
+                      setSelectedCategory('ทั้งหมด');
+                      setDiscoveryCategory('สถานที่ยอดนิยม');
+                      document.getElementById('recommended-attractions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    className="group min-w-0 overflow-hidden rounded-xl border border-white bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <img
+                      src={attraction.images?.[0] || destinationImages[province]}
+                      alt={attraction.title}
+                      loading="lazy"
+                      className="h-16 w-full object-cover transition duration-500 group-hover:scale-[1.03] sm:h-20"
+                    />
+                    <span className="block p-2">
+                      <span className="block truncate text-xs font-bold text-[#1F2E7A] sm:text-sm">{province}</span>
+                      <span className="mt-0.5 block truncate text-[10px] text-slate-500 sm:text-[11px]">
+                        {attraction.category} · {attraction.title}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-center text-sm text-slate-500">
+                ยังไม่มีข้อมูลจุดหมายยอดนิยม
+              </p>
+            )}
+          </section>
+
+          <section
+            id="travel-inspiration"
+            className="relative flex min-h-48 items-center overflow-hidden rounded-2xl bg-cover bg-center px-5 py-6 text-white shadow-[0_8px_28px_rgba(31,46,122,0.14)] sm:px-7"
+            style={{
+              backgroundImage: 'linear-gradient(90deg, rgba(255,255,255,.98) 0%, rgba(238,248,255,.92) 45%, rgba(12,53,111,.08) 100%), url("https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=85")',
+            }}
+          >
+            <div className="relative z-10 max-w-[68%] text-[#1F2E7A] sm:max-w-[62%]">
+              <div className="flex items-center gap-2">
+                <Leaf className="h-5 w-5 fill-emerald-500 text-emerald-600" />
+                <h2 className="text-base font-bold sm:text-lg">ทริปเที่ยวสบายใจ</h2>
+              </div>
+              <p className="mt-2 text-xs font-semibold sm:text-sm">เช็กสภาพอากาศ ก่อนออกเดินทาง</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-600 sm:text-xs">
+                วางแผนเที่ยวได้ง่ายขึ้น ปลอดภัยทุกเส้นทางการเดินทาง
+              </p>
+              <button
+                type="button"
+                onClick={() => document.getElementById('place-search')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                className="mt-3 inline-flex items-center gap-1 rounded-full border border-blue-300 bg-white/80 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
+              >
+                ดูรายละเอียด <ChevronRight className="h-3.5 w-3.5" />
+              </button>
             </div>
           </section>
           </div>
 
-          <section className="mb-10 border-t border-slate-100 pt-8">
-            <div className="mb-5 flex items-end justify-between gap-4">
+          <section id="nearby-attractions" className="scroll-mt-24">
+            <div className="mb-3 flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-bold tracking-tight text-[#1F2E7A] sm:text-2xl">สถานที่ใกล้เคียง</h2>
-                <p className="mt-1 text-sm text-slate-500">สถานที่ท่องเที่ยวใกล้ตำแหน่งปัจจุบันของคุณ</p>
+                <h2 className="text-lg font-bold tracking-tight text-[#1F2E7A] sm:text-xl">สถานที่ใกล้เคียง</h2>
+                <p className="mt-1 text-sm text-slate-500">เรียงตามระยะทางจากตำแหน่งปัจจุบันเมื่อมีพิกัด</p>
               </div>
               {nearbyAttractions.length > 4 && (
                 <button
@@ -1390,7 +1663,7 @@ export default function HomePage() {
               )}
             </div>
             {nearbyAttractions.length > 0 ? (
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5">
                 {(showAllNearby ? nearbyAttractions : nearbyAttractions.slice(0, 4)).map((attraction) => (
                   <AttractionCard
                     key={`nearby-${attraction.key}`}
@@ -1409,38 +1682,8 @@ export default function HomePage() {
               </div>
             )}
           </section>
+          </div>
 
-          <section
-            className="relative mb-2 min-h-52 overflow-hidden rounded-2xl bg-cover bg-center px-6 py-8 text-white shadow-[0_8px_28px_rgba(31,46,122,0.18)] sm:px-10 sm:py-10"
-            style={{
-              backgroundImage: `linear-gradient(90deg, rgba(8,31,78,.84) 0%, rgba(10,65,125,.6) 55%, rgba(10,65,125,.16) 100%)${displayedAttractions[0]?.images[0] || filteredAttractions[0]?.images[0] ? `, url("${displayedAttractions[0]?.images[0] || filteredAttractions[0]?.images[0]}")` : ''}`,
-            }}
-          >
-            <div className="relative z-10 flex min-h-36 flex-wrap items-center justify-between gap-6">
-              <div className="max-w-2xl">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-amber-300" />
-                  <h2 className="text-xl font-bold sm:text-2xl">สถานที่น่าไปช่วงนี้</h2>
-                </div>
-                <p className="mt-2 text-sm leading-relaxed text-blue-50 sm:text-base">
-                  {displayedAttractions[0] || filteredAttractions[0]
-                    ? `รวมไอเดียเที่ยวไทยให้ทุกทริปของคุณพิเศษยิ่งขึ้น `
-                    : 'รวมไอเดียเที่ยวไทยให้ทุกทริปของคุณพิเศษยิ่งขึ้น'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setDiscoveryCategory('สถานที่ยอดนิยม');
-                  setSelectedCategory('ทั้งหมด');
-                  document.getElementById('recommended-attractions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }}
-                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-[#1F2E7A] shadow-lg transition-all hover:-translate-y-0.5 hover:bg-blue-50"
-              >
-                ดูสถานที่แนะนำ
-              </button>
-            </div>
-          </section>
         </div>
       </div>
       <footer className="mx-auto max-w-7xl px-4 py-4 text-center text-xs text-slate-500">

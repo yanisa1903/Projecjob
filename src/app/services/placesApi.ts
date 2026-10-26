@@ -77,6 +77,8 @@ export interface PlaceDetails extends PlaceSearchResult {
   photos: string[];
   websiteUri?: string;
   googleMapsUri?: string;
+  phone?: string;
+  openingHours?: string;
 }
 
 export interface PlaceAutocompleteResult {
@@ -115,8 +117,10 @@ const CATEGORY_SEARCHES: Array<{ aliases: string[]; searchTerm: string; osmTags:
   { aliases: ['น้ำตก', 'waterfalls', 'waterfall'], searchTerm: 'waterfall', osmTags: ['natural:waterfall', 'waterway:waterfall'] },
   { aliases: ['จุดชมวิว', 'วิว', 'viewpoints', 'viewpoint', 'scenic view'], searchTerm: 'viewpoint', osmTags: ['tourism:viewpoint'] },
   { aliases: ['ภูเขา', 'ภูดอย', 'mountains', 'mountain'], searchTerm: 'mountain', osmTags: ['natural:peak', 'natural:mountain_range'] },
+  { aliases: ['ธรรมชาติ', 'nature', 'forest', 'natural reserve'], searchTerm: 'nature', osmTags: ['boundary:national_park', 'boundary:protected_area', 'leisure:nature_reserve', 'leisure:park'] },
   { aliases: ['เกาะ', 'islands', 'island'], searchTerm: 'island', osmTags: ['place:island'] },
   { aliases: ['วัด', 'temples', 'temple'], searchTerm: 'temple', osmTags: ['amenity:place_of_worship', 'building:temple'] },
+  { aliases: ['ประวัติศาสตร์', 'สถานที่ประวัติศาสตร์', 'historic sites', 'historical site', 'archaeological site'], searchTerm: 'historic site', osmTags: ['historic:archaeological_site', 'historic:castle', 'historic:fort', 'historic:monument', 'historic:ruins'] },
   { aliases: ['คาเฟ่', 'ร้านกาแฟ', 'cafes', 'cafe', 'coffee shop'], searchTerm: 'cafe', osmTags: ['amenity:cafe'] },
   { aliases: ['ตลาด', 'markets', 'market'], searchTerm: 'market', osmTags: ['amenity:marketplace'] },
   { aliases: ['อุทยาน', 'national parks', 'national park'], searchTerm: 'national park', osmTags: ['boundary:national_park', 'boundary:protected_area', 'leisure:nature_reserve'] },

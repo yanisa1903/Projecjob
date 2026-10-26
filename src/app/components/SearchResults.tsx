@@ -40,9 +40,9 @@ function categoryLabel(types: string[] = []) {
   if (types.some((type) => /waterfall/i.test(type))) return 'น้ำตก';
   if (types.some((type) => /viewpoint/i.test(type))) return 'จุดชมวิว';
   if (types.some((type) => /mountain|peak/i.test(type))) return 'ภูเขา';
+  if (types.some((type) => /historic|archaeological|museum/i.test(type))) return 'ประวัติศาสตร์';
   if (types.some((type) => /temple|place_of_worship|church|mosque/i.test(type))) return 'วัด';
-  if (types.some((type) => /park|national_park|nature_reserve/i.test(type))) return 'อุทยาน';
-  if (types.some((type) => /museum/i.test(type))) return 'พิพิธภัณฑ์';
+  if (types.some((type) => /park|national_park|nature_reserve|forest/i.test(type))) return 'ธรรมชาติ';
   if (types.some((type) => /cafe/i.test(type))) return 'คาเฟ่';
   return 'สถานที่ท่องเที่ยว';
 }
@@ -264,7 +264,7 @@ export default function SearchResults() {
             <div className="mt-6">
               <h3 className="mb-3 font-semibold text-[#1F2E7A]">ค้นหาสถานที่ในประเทศไทย</h3>
               <div className="flex flex-wrap gap-2">
-                {['ทะเล', 'วัด', 'น้ำตก', 'ภูเขา', 'คาเฟ่', 'อุทยาน'].map((item) => (
+                {['ทะเล', 'ภูเขา', 'ธรรมชาติ', 'น้ำตก', 'วัด', 'ประวัติศาสตร์', 'คาเฟ่'].map((item) => (
                   <button
                     key={item}
                     type="button"

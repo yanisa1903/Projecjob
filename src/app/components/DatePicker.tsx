@@ -11,11 +11,16 @@ interface DatePickerProps {
   selected?: Date;
   onSelect: (date: Date | undefined) => void;
   minDate?: Date;
+  maxDate?: Date;
   disabled?: boolean;
 }
 
-export default function DatePicker({ placeholder, selected, onSelect, minDate, disabled = false }: DatePickerProps) {
+export default function DatePicker({ placeholder, selected, onSelect, minDate, maxDate, disabled = false }: DatePickerProps) {
   const [open, setOpen] = useState(false);
+  const disabledDays = [
+    ...(minDate ? [{ before: new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()) }] : []),
+    ...(maxDate ? [{ after: new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate()) }] : []),
+  ];
 
   useEffect(() => {
     if (disabled) setOpen(false);
@@ -132,9 +137,7 @@ export default function DatePicker({ placeholder, selected, onSelect, minDate, d
               onSelect(date);
               setOpen(false);
             }}
-            disabled={minDate
-              ? { before: new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()) }
-              : undefined}
+            disabled={disabledDays.length > 0 ? disabledDays : undefined}
             locale={th}
             defaultMonth={selected || minDate || new Date()}
           />
