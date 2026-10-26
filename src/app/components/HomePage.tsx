@@ -1246,7 +1246,7 @@ export default function HomePage() {
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-[#1F2E7A]">
                 <MapPinned className="h-5 w-5" />
               </span>
-              <span className="text-lg font-extrabold tracking-tight text-[#1F2E7A] sm:text-xl">ไปไหนดี</span>
+              <span className="text-lg font-extrabold tracking-tight text-[#1F2E7A] sm:text-xl">Thailand</span>
             </a>
 
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -1277,13 +1277,12 @@ export default function HomePage() {
               <div className="relative z-30 flex min-h-[440px] flex-col justify-between gap-5 p-5 pb-6 sm:min-h-[430px] sm:p-7 lg:min-h-[390px] lg:p-9">
                 <div className="w-full max-w-2xl lg:max-w-[calc(100%-34rem)]">
                   <a href="#home" className="inline-flex items-center gap-2 text-xs font-semibold text-blue-100/90 transition hover:text-white">
-                    <Navigation className="h-3.5 w-3.5" /> ไปไหนดี · เที่ยวไทยในแบบคุณ
                   </a>
                   <h1 className="mt-3 text-[clamp(2.1rem,5vw,3.6rem)] font-black leading-tight tracking-tight text-white">
-                    ค้นพบเสน่ห์เมืองไทย
+                    ประเทศไทย รอให้คุณออกไปค้นพบ
                   </h1>
                   <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/90 sm:text-base">
-                    ค้นหาสถานที่ที่ใช่ วางแผนวันเดินทาง และออกไปเก็บเรื่องราวดี ๆ ในทุกจังหวัด
+                   ให้ทุกวันหยุดกลายเป็นช่วงเวลาพิเศษ ด้วยการค้นพบสถานที่ใหม่ๆ ทั่วประเทศไทยวางแผนวันเดินทาง เช็กสภาพอากาศ แล้วออกไปสร้างความทรงจำดีๆ ในทุกเส้นทาง
                   </p>
                 </div>
 
@@ -1474,7 +1473,7 @@ export default function HomePage() {
           <section id="categories" className="scroll-mt-24">
             <div className="mb-3">
               <h2 className="text-lg font-bold text-[#1F2E7A] sm:text-xl">ประเภทสถานที่ท่องเที่ยว</h2>
-              <p className="mt-1 text-sm text-slate-500">เลือกหมวดหมู่เพื่อค้นพบจุดหมายที่ใช่สำหรับคุณ</p>
+              <p className="mt-1 text-sm text-slate-500"></p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 2xl:grid-cols-10">
               {tourismCategories.map((category, index) => {
@@ -1516,7 +1515,7 @@ export default function HomePage() {
                 <Flame className="mt-0.5 h-5 w-5 shrink-0 fill-blue-600 text-blue-600" />
                 <div>
                   <h2 className="text-lg font-bold leading-tight text-[#1F2E7A] sm:text-xl">สถานที่แนะนำ</h2>
-                  <p className="mt-1 text-xs text-slate-500 sm:text-sm">คัดสรรสถานที่สวย ๆ ที่ไม่ควรพลาด</p>
+                  <p className="mt-1 text-xs text-slate-500 sm:text-sm"></p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1524,7 +1523,6 @@ export default function HomePage() {
                   href="#categories"
                   className="hidden rounded-full px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 sm:inline-flex"
                 >
-                  เลือกหมวดหมู่
                 </a>
                 <button
                   type="button"
@@ -1579,7 +1577,7 @@ export default function HomePage() {
           <section id="popular-destinations" className="scroll-mt-24 rounded-2xl bg-gradient-to-br from-sky-50 to-blue-50 p-4 sm:p-5">
             <div className="mb-3 flex items-center gap-2">
               <Flame className="h-5 w-5 fill-blue-600 text-blue-600" />
-              <h2 className="text-base font-bold tracking-tight text-[#1F2E7A] sm:text-lg">จุดหมายยอดนิยม</h2>
+              <h2 className="text-base font-bold tracking-tight text-[#1F2E7A] sm:text-lg">สถานที่ยอดนิยม</h2>
             </div>
             {popularDestinations.length > 0 ? (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1650,7 +1648,7 @@ export default function HomePage() {
             <div className="mb-3 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-lg font-bold tracking-tight text-[#1F2E7A] sm:text-xl">สถานที่ใกล้เคียง</h2>
-                <p className="mt-1 text-sm text-slate-500">เรียงตามระยะทางจากตำแหน่งปัจจุบันเมื่อมีพิกัด</p>
+                <p className="mt-1 text-sm text-slate-500"></p>
               </div>
               {nearbyAttractions.length > 4 && (
                 <button
