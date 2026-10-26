@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from 'react';
 import { PLACE_CATEGORIES, THAI_PROVINCES } from '../data/provinces';
 import { autocompletePlaces, type PlaceAutocompleteResult } from '../services/placesApi';

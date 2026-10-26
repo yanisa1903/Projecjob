@@ -1497,12 +1497,12 @@ export default function HomePage() {
                     type="button"
                     onClick={() => setSelectedCategory((current) => current === category ? 'ทั้งหมด' : category)}
                     aria-pressed={selectedCategory === category}
-                    className={`flex min-h-[94px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl border bg-white px-2 py-3 text-sm font-semibold shadow-[0_3px_14px_rgba(31,46,122,0.06)] transition hover:-translate-y-0.5 hover:shadow-md ${selectedCategory === category ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-100'}`}
+                    className={`flex min-h-[clamp(76px,8vw,94px)] min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border bg-white px-1.5 py-2 text-xs font-semibold shadow-[0_3px_14px_rgba(31,46,122,0.06)] transition hover:-translate-y-0.5 hover:shadow-md sm:gap-2 sm:px-2 sm:py-3 sm:text-sm ${selectedCategory === category ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-100'}`}
                   >
-                    <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${categoryColors[index]}`}>
-                      <CategoryIcon className="h-5 w-5" />
+                    <span className={`flex h-9 w-9 items-center justify-center rounded-xl sm:h-10 sm:w-10 ${categoryColors[index]}`}>
+                      <CategoryIcon className="h-4 w-4 sm:h-5 sm:w-5" />
                     </span>
-                    <span className="text-slate-700">{category}</span>
+                    <span className="truncate text-slate-700">{category}</span>
                   </button>
                 );
               })}
@@ -1561,7 +1561,7 @@ export default function HomePage() {
                   ไม่พบสถานที่จากข้อมูลที่เชื่อมต่อ ลองเลือกหมวดหมู่อื่นหรือค้นหาสถานที่
                 </p>
               ) : recommendedAttractions.map((attraction) => (
-                <div key={attraction.key} className="w-[min(78vw,220px)] shrink-0 snap-start sm:w-[220px]">
+                <div key={attraction.key} className="w-[min(78vw,220px)] shrink-0 snap-start sm:w-[clamp(220px,24vw,260px)]">
                   <AttractionCard
                     attraction={attraction}
                     isFavorite={favoriteIds.includes(attraction.key)}
