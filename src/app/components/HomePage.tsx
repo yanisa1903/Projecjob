@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Search, AlertCircle, AlertTriangle, Wind, Activity, Heart, MapPin, MapPinned, Banknote, Navigation, Compass, Trees, Waves, Mountain, Landmark, Sun, Cloud, CloudRain, Droplets, Thermometer, CloudLightning, LoaderCircle, X, Info, History, Coffee, LayoutGrid, Utensils, Eye, Flame, ChevronLeft, ChevronRight, Leaf, type LucideIcon } from 'lucide-react';
 import DatePicker from './DatePicker';
@@ -7,9 +7,10 @@ import AttractionCard from './AttractionCard';
 import { useUserLocation } from '../context/UserLocationContext';
 import { THAI_PROVINCES } from '../data/provinces';
 import type { PlaceSearchOption } from '../hooks/usePlaceSearch';
-import { getPlacePhotoUrl, searchPlaces, type PlaceDetails, type PlaceSearchResult } from '../services/placesApi';
+import { usePlaceReviews } from '../hooks/usePlaceReviews';
+import { getPlaceDetailsBatch, getPlacePhotoUrl, searchPlaces, type PlaceDetails, type PlaceSearchResult } from '../services/placesApi';
 import { getFavoriteIds, removeFavoritePlace, saveFavoritePlace, subscribeToFavorites } from '../utils/favorites';
-import { fetchTatAttractions, type TatAttraction } from '../utils/tatApi';
+import { fetchCkanRecords, type CkanPlace } from '../services/ckanApi';
 import {
   fetchRegionalAlerts,
   findAlertLocation,
@@ -44,6 +45,7 @@ type PlaceSuggestion = {
   entranceFee?: number;
   recommendedTime?: string;
   openingHours?: string;
+  phone?: string;
   travelCaution?: string;
   favoriteKey?: string;
 };
@@ -52,6 +54,11 @@ const discoveryCategories = [
   'สถานที่ยอดนิยม', 'คะแนนสูง', 'ใกล้คุณ', 'เหมาะกับสภาพอากาศวันนี้', 'รายการโปรด',
 ] as const;
 type DiscoveryCategory = typeof discoveryCategories[number];
+
+const SEASONAL_BONUS = 2;
+const MAX_POPULARITY_CANDIDATES = 40;
+const MAX_POPULARITY_RESULTS = 10;
+const MAX_RESULTS_PER_PROVINCE = 2;
 
 function distanceBetween(latitude: number, longitude: number, origin: AlertCoordinates) {
   const radians = (value: number) => (value * Math.PI) / 180;
@@ -70,6 +77,11 @@ function getProvinceName(location: string, apiProvince?: string) {
   return candidate?.replace(/^จังหวัด/, '') || '';
 }
 
+function isThaiProvince(province: string) {
+  const normalized = province.replace(/^จังหวัด/, '').trim();
+  return THAI_PROVINCES.some((thaiProvince) => thaiProvince.replace(/^จังหวัด/, '').trim() === normalized);
+}
+
 function getTourismCategory(type: string) {
   const value = type.toLocaleLowerCase('th');
   if (/ทะเล|ชายหาด|หาด|เกาะ|อ่าว|beach|island|bay/.test(value)) return 'ทะเล';
@@ -82,6 +94,136 @@ function getTourismCategory(type: string) {
   if (/อาหาร|ร้านอาหาร|restaurant|food|dining/.test(value)) return 'อาหาร';
   if (/อุทยาน|ป่า|สวน|park|forest|nature|reserve/.test(value)) return 'ธรรมชาติ';
   return 'สถานที่ท่องเที่ยว';
+}
+
+function normalizePlaceTitle(title: string) {
+  return title.toLocaleLowerCase('th').normalize('NFC').replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+
+function normalizeProvinceName(province: string) {
+  return province.replace(/^จังหวัด/, '').trim().toLocaleLowerCase('th');
+}
+
+function getSeasonalRecommendation(attraction: { title: string; category: string; location: string; province: string }, month: number) {
+  const placeText = `${attraction.title} ${attraction.location} ${attraction.province}`.toLocaleLowerCase('th');
+  const category = attraction.category.toLocaleLowerCase('th');
+  const isLoyKratongSeason = month === 10 || month === 11;
+  const isLoyKratongDestination = /ลอยกระทง|ยี่เป็ง|กระทงสาย|ปล่อยโคม|เทศกาลโคม|ประเพณีเผาเทียนเล่นไฟ|อุทยานประวัติศาสตร์สุโขทัย|สะพานนวรัฐ|ประตูท่าแพ|ริมแม่น้ำปิง|แม่น้ำเจ้าพระยา|ริมเจ้าพระยา|asiatique|iconsiam|ท่ามหาราช/i
+    .test(placeText);
+  if (isLoyKratongSeason && isLoyKratongDestination) {
+    return { score: SEASONAL_BONUS, reason: 'ช่วงเทศกาลลอยกระทง' };
+  }
+  if ([11, 12, 1, 2].includes(month) && /ภูเขา|ธรรมชาติ|จุดชมวิว/.test(category)) {
+    return { score: SEASONAL_BONUS, reason: 'แนะนำฤดูหนาว' };
+  }
+  return { score: 0, reason: 'ยอดนิยม' };
+}
+
+function scorePopularity(rating: number, reviewCount: number, seasonalBonus: number) {
+  return rating * Math.log10(reviewCount + 1) + seasonalBonus;
+}
+
+function getThailandPopularityBoost(title: string) {
+  return /พระบรมมหาราชวัง|วัดพระแก้ว|วัดพระศรีรัตนศาสดาราม|วัดอรุณ|วัดโพธิ์|อุทยานประวัติศาสตร์พระนครศรีอยุธยา|อุทยานประวัติศาสตร์สุโขทัย|ดอยสุเทพ|ดอยอินทนนท์|เชียงใหม่ไนท์บาซาร์|วัดร่องขุ่น|ภูชี้ฟ้า|เมืองปาย|เขาใหญ่|อุทยานแห่งชาติเขาใหญ่|อุทยานประวัติศาสตร์พิมาย|ตลาดน้ำอัมพวา|สะพานข้ามแม่น้ำแคว|น้ำตกเอราวัณ|หาดป่าตอง|ภูเก็ต|หมู่เกาะพีพี|เกาะพีพี|อ่าวไร่เลย์|เกาะสมุย|เกาะเต่า|เขื่อนเชี่ยวหลาน|เกาะหลีเป๊ะ|พัทยา|เกาะล้าน|เกาะเสม็ด|ตลาดน้ำดำเนินสะดวก|ภูกระดึง|ผาแต้ม|grand palace|wat phra kaew|wat arun|wat pho|ayutthaya historical park|sukhothai historical park|doi suthep|doi inthanon|chiang mai night bazaar|white temple|phu chi fa|khao yai|erawan falls|patong beach|phuket|phi phi|railay|koh samui|ko samui|koh tao|ko tao|cheow lan|khao sok|koh lipe|ko lipe|pattaya|koh larn|ko lan|koh samet|ko samet|damnoen saduak|phu kradueng|pha taem/i
+    .test(title) ? 8 : 0;
+}
+
+function PopularityLookup({
+  attraction,
+  onPopularityData,
+}: {
+  attraction: { key: string; title: string; province: string; latitude?: number; longitude?: number };
+  onPopularityData: (key: string, rating?: number, reviewCount?: number) => void;
+}) {
+  const { review, isLoading } = usePlaceReviews(attraction.title, attraction.province, {
+    latitude: attraction.latitude,
+    longitude: attraction.longitude,
+  });
+  useEffect(() => {
+    if (!isLoading) onPopularityData(attraction.key, review?.rating, review?.reviewCount);
+  }, [attraction.key, isLoading, onPopularityData, review?.rating, review?.reviewCount]);
+  return null;
+}
+
+function selectPopularityCandidates<T extends {
+  title: string;
+  province: string;
+  seasonal: { score: number };
+}>(attractions: T[]) {
+  const uniqueByTitle = new Map<string, T>();
+  attractions
+    .forEach((attraction) => {
+      const normalizedTitle = normalizePlaceTitle(attraction.title);
+      if (normalizedTitle && !uniqueByTitle.has(normalizedTitle)) uniqueByTitle.set(normalizedTitle, attraction);
+    });
+
+  const provinces = new Map<string, T[]>();
+  [...uniqueByTitle.values()].forEach((attraction) => {
+    const province = normalizeProvinceName(attraction.province);
+    const provinceAttractions = provinces.get(province) || [];
+    provinceAttractions.push(attraction);
+    provinces.set(province, provinceAttractions);
+  });
+  provinces.forEach((items) => items.sort((a, b) =>
+    getThailandPopularityBoost(b.title) - getThailandPopularityBoost(a.title)
+    || b.seasonal.score - a.seasonal.score
+    || a.title.localeCompare(b.title, 'th'),
+  ));
+
+  const result: T[] = [];
+  const provinceNames = [...provinces.keys()].sort((a, b) => a.localeCompare(b, 'th'));
+  for (let index = 0; result.length < MAX_POPULARITY_CANDIDATES; index += 1) {
+    let added = false;
+    for (const province of provinceNames) {
+      const attraction = provinces.get(province)?.[index];
+      if (!attraction) continue;
+      result.push(attraction);
+      added = true;
+      if (result.length >= MAX_POPULARITY_CANDIDATES) break;
+    }
+    if (!added) break;
+  }
+  return result;
+}
+
+function rankPopularityCandidates<T extends {
+  title: string;
+  province: string;
+  popularity: { rating?: number; reviewCount?: number };
+  seasonal: { score: number };
+  distanceKm?: number;
+}>(attractions: T[]) {
+  const sorted = [...attractions].sort((a, b) => {
+    const aReviewCount = a.popularity.reviewCount || 0;
+    const bReviewCount = b.popularity.reviewCount || 0;
+    const aScore = (a.popularity.rating && aReviewCount > 0
+      ? scorePopularity(a.popularity.rating, aReviewCount, a.seasonal.score)
+      : getThailandPopularityBoost(a.title) + a.seasonal.score);
+    const bScore = (b.popularity.rating && bReviewCount > 0
+      ? scorePopularity(b.popularity.rating, bReviewCount, b.seasonal.score)
+      : getThailandPopularityBoost(b.title) + b.seasonal.score);
+    const scoreDifference = bScore - aScore;
+    if (Math.abs(scoreDifference) > 0.1) return scoreDifference;
+    return (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity) || scoreDifference || a.title.localeCompare(b.title, 'th');
+  });
+  const provinceCounts = new Map<string, number>();
+  const seenTitles = new Set<string>();
+  const result: T[] = [];
+  for (const attraction of sorted) {
+    const normalizedTitle = normalizePlaceTitle(attraction.title);
+    const provinceKey = normalizeProvinceName(attraction.province);
+    const provinceCount = provinceCounts.get(provinceKey) || 0;
+    if (!normalizedTitle || seenTitles.has(normalizedTitle) || provinceCount >= MAX_RESULTS_PER_PROVINCE) continue;
+    seenTitles.add(normalizedTitle);
+    provinceCounts.set(provinceKey, provinceCount + 1);
+    result.push(attraction);
+    if (result.length === MAX_POPULARITY_RESULTS) break;
+  }
+  return result;
+}
+
+function getThailandMonth() {
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bangkok', month: 'numeric' }).format(new Date()));
 }
 
 type AirLevel = 'safe' | 'warning' | 'danger';
@@ -204,11 +346,16 @@ export default function HomePage() {
   const [tripForecastError, setTripForecastError] = useState('');
   const [tripTemperatureWeather, setTripTemperatureWeather] = useState<{ placeKey: string; weather: WindyWeather } | null>(null);
   const [isTripForecastModalOpen, setIsTripForecastModalOpen] = useState(false);
-  const [tatPlaces, setTatPlaces] = useState<TatAttraction[]>([]);
+  const [ckanPlaces, setCkanPlaces] = useState<CkanPlace[]>([]);
   const [photonPlaces, setPhotonPlaces] = useState<PlaceSearchResult[]>([]);
-  const [tatPlacesLoaded, setTatPlacesLoaded] = useState(false);
+  const [ckanPlacesLoaded, setCkanPlacesLoaded] = useState(false);
   const [attractionsLoading, setAttractionsLoading] = useState(true);
   const [attractionsError, setAttractionsError] = useState('');
+  const [popularitySignals, setPopularitySignals] = useState<Record<string, {
+    rating?: number;
+    reviewCount?: number;
+  }>>({});
+  const [osmPlaceDetails, setOsmPlaceDetails] = useState<Record<string, PlaceDetails>>({});
   const [selectedCategory, setSelectedCategory] = useState<TourismCategory>('ทั้งหมด');
   const { coordinates: gpsCoordinates, status: gpsStatus } = useUserLocation();
   const [selectedProvince, setSelectedProvince] = useState('');
@@ -216,9 +363,6 @@ export default function HomePage() {
   const [regionalAlert, setRegionalAlert] = useState<RegionalAlertData | null>(null);
   const [regionalAlertLoading, setRegionalAlertLoading] = useState(true);
   const [regionalAlertError, setRegionalAlertError] = useState('');
-  const [heroRegionalAlert, setHeroRegionalAlert] = useState<RegionalAlertData | null>(null);
-  const [heroRegionalAlertLoading, setHeroRegionalAlertLoading] = useState(false);
-  const [heroRegionalAlertError, setHeroRegionalAlertError] = useState('');
   const [temperatureWeather, setTemperatureWeather] = useState<WindyWeather | null>(null);
   const [temperatureWeatherLoading, setTemperatureWeatherLoading] = useState(false);
   const [discoveryCategory, setDiscoveryCategory] = useState<DiscoveryCategory>('สถานที่ยอดนิยม');
@@ -236,6 +380,13 @@ export default function HomePage() {
   const [destinationImages, setDestinationImages] = useState<Record<string, string>>({});
   const recommendedTrackRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const reportPopularityData = useCallback((key: string, rating?: number, reviewCount?: number) => {
+    setPopularitySignals((current) => {
+      const previous = current[key];
+      if (previous?.rating === rating && previous?.reviewCount === reviewCount) return current;
+      return { ...current, [key]: { rating, reviewCount } };
+    });
+  }, []);
   const isMarineTripDestination = Boolean(selectedPlace
     && /ทะเล|เกาะ|ชายหาด|หาด|อ่าว|พัทยา|หัวหิน|พีพี|เต่า|beach|island/i
       .test(`${selectedPlace.title} ${selectedPlace.category} ${selectedPlace.location}`));
@@ -397,15 +548,20 @@ export default function HomePage() {
 
   useEffect(() => {
     let active = true;
-    fetchTatAttractions(50)
-      .then((places) => {
-        if (active) setTatPlaces(places);
+    fetchCkanRecords('attractions')
+      .then((page) => {
+        if (active) {
+          setCkanPlaces(page.records);
+        }
       })
-      .catch(() => {
-        if (active) setTatPlaces([]);
+      .catch((error: unknown) => {
+        if (active) {
+          setCkanPlaces([]);
+          console.error('Unable to load CKAN attractions', error);
+        }
       })
       .finally(() => {
-        if (active) setTatPlacesLoaded(true);
+        if (active) setCkanPlacesLoaded(true);
       });
     return () => {
       active = false;
@@ -413,14 +569,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (!tatPlacesLoaded) return;
-    if (tatPlaces.length > 0) {
-      setPhotonPlaces([]);
-      setAttractionsError('');
-      setAttractionsLoading(false);
-      return;
-    }
-
+    if (!ckanPlacesLoaded) return;
     const controller = new AbortController();
     const categoryQueries: Record<TourismCategory, string[]> = {
       ทั้งหมด: ['beach', 'waterfall', 'mountain', 'temple', 'national park', 'historic site', 'cafe', 'viewpoint', 'restaurant'],
@@ -453,13 +602,15 @@ export default function HomePage() {
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setPhotonPlaces([]);
-        setAttractionsError(error instanceof Error ? error.message : 'ไม่สามารถโหลดสถานที่แนะนำได้');
+        if (ckanPlaces.length === 0) {
+          setAttractionsError(error instanceof Error ? error.message : 'ไม่สามารถโหลดสถานที่แนะนำได้');
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setAttractionsLoading(false);
       });
     return () => controller.abort();
-  }, [selectedCategory, tatPlaces.length, tatPlacesLoaded]);
+  }, [selectedCategory, ckanPlaces.length, ckanPlacesLoaded]);
 
   const attractions = [
     {
@@ -628,30 +779,36 @@ export default function HomePage() {
     },
     ...additionalAttractions,
   ];
-  const apiAttractions = tatPlaces.length > 0
-    ? tatPlaces.map((place, index) => ({
-        id: place.id ?? `tat-${index}`,
-        key: `tat-${place.id ?? index}`,
-        routeId: undefined,
+  const ckanAttractions = ckanPlaces.map((place) => ({
+        id: place.id,
+        key: `ckan-${place.kind}-${place.id}`,
+        routeId: `ckan-${place.kind}-${place.id}`,
         title: place.name,
-        province: getProvinceName(place.location || '', place.province),
-        sourceType: place.type,
-        category: getTourismCategory(place.type),
+        province: place.province || getProvinceName(place.address),
+        sourceType: place.category,
+        category: getTourismCategory(`${place.category} ${place.name} ${place.description}`),
         latitude: place.latitude,
         longitude: place.longitude,
-        description: place.description || '',
-        location: place.location || '',
+        description: place.description,
+        location: place.address,
         images: place.images,
-        rating: place.rating,
-        reviewCount: place.reviewCount,
-        entranceFee: place.entranceFee,
-        recommendedTime: place.recommendedTime,
+        rating: undefined,
+        reviewCount: undefined,
+        entranceFee: place.freeEntry ? 0 : undefined,
+        recommendedTime: undefined,
         openingHours: place.openingHours,
-        travelCaution: place.travelCaution,
-        suitableFor: place.suitableFor || [],
+        phone: place.phone,
+        travelCaution: '',
+        suitableFor: [] as string[],
         createdAt: place.createdAt,
-      }))
-    : photonPlaces.map((place) => ({
+        ckanKind: place.kind,
+        ckanId: place.id,
+        ckanResourceUrl: place.resourceUrl,
+        ckanEntityUrl: place.url,
+        email: place.email,
+        websites: place.websites,
+      }));
+  const photonAttractions = photonPlaces.map((place) => ({
         id: place.id,
         key: `place-${place.id}`,
         routeId: `place-${place.id}`,
@@ -669,11 +826,57 @@ export default function HomePage() {
         entranceFee: undefined,
         recommendedTime: undefined,
         openingHours: undefined,
+        phone: undefined,
         travelCaution: undefined,
         suitableFor: [] as string[],
         createdAt: undefined,
       }));
-  const sourceAttractions = apiAttractions;
+  const knownPlaceKeys = new Set(ckanAttractions.map((place) =>
+    `${place.title.toLocaleLowerCase('th').replace(/[\s\p{P}\p{S}]+/gu, '')}:${place.province.toLocaleLowerCase('th')}`,
+  ));
+  const sourceAttractions = [
+    ...ckanAttractions.filter((place) => isThaiProvince(place.province)),
+    ...photonAttractions.filter((place) => {
+      if (!isThaiProvince(place.province) || place.category === 'คาเฟ่' || place.category === 'อาหาร') return false;
+      const key = `${place.title.toLocaleLowerCase('th').replace(/[\s\p{P}\p{S}]+/gu, '')}:${place.province.toLocaleLowerCase('th')}`;
+      if (knownPlaceKeys.has(key)) return false;
+      knownPlaceKeys.add(key);
+      return true;
+    }),
+    ...(ckanAttractions.length === 0 && photonAttractions.length === 0
+      ? attractions.map((place) => ({
+          ...place,
+          key: `fallback-${place.id}`,
+          routeId: `fallback-${place.id}`,
+          province: getProvinceName(place.location),
+          sourceType: place.category,
+          rating: undefined,
+          reviewCount: undefined,
+          entranceFee: undefined,
+          recommendedTime: undefined,
+          openingHours: undefined,
+          phone: undefined,
+          travelCaution: undefined,
+          suitableFor: [] as string[],
+          createdAt: undefined,
+        })).filter((place) => isThaiProvince(place.province))
+      : []),
+  ];
+  const osmLookupIds = [...new Set(sourceAttractions
+    .map((place) => place.routeId?.replace(/^place-/, '') || '')
+    .filter((id) => /^osm:[NRW]:\d+$/.test(id)))].slice(0, 50).join(',');
+  useEffect(() => {
+    if (!osmLookupIds) return;
+    const controller = new AbortController();
+    getPlaceDetailsBatch(osmLookupIds.split(','), controller.signal)
+      .then((details) => {
+        if (!controller.signal.aborted) setOsmPlaceDetails((current) => ({ ...current, ...details }));
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) console.warn('ไม่สามารถโหลดเวลาเปิด-ปิดและเบอร์ติดต่อของสถานที่แนะนำได้', error);
+      });
+    return () => controller.abort();
+  }, [osmLookupIds]);
 
   const handlePlaceSelect = (place: PlaceDetails) => {
     const province = getProvinceName(place.address, place.province);
@@ -693,6 +896,8 @@ export default function HomePage() {
       lon: place.longitude === undefined ? undefined : String(place.longitude),
       rating: place.rating,
       reviewCount: place.userRatingCount,
+      openingHours: place.openingHours,
+      phone: place.phone,
       favoriteKey: `place-${place.id}`,
     };
     setSelectedPlace(selected);
@@ -852,16 +1057,29 @@ export default function HomePage() {
       && (regionalAlert.windGusts === null || regionalAlert.windGusts < 60)
       && (regionalAlert.temperature === null || regionalAlert.temperature < 35)
     : null;
+  const thailandMonth = getThailandMonth();
   const filteredAttractions = sourceAttractions
+    .filter((attraction) => isThaiProvince(attraction.province))
     .filter((attraction) => (selectedCategory === 'ทั้งหมด' || attraction.category === selectedCategory))
     .filter((attraction) => !searchQuery.trim()
       || `${attraction.title} ${attraction.location} ${attraction.province} ${attraction.category} ${attraction.description}`.toLocaleLowerCase('th').includes(searchQuery.trim().toLocaleLowerCase('th')))
-    .map((attraction) => ({
-      ...attraction,
-      distanceKm: locationOrigin && attraction.latitude !== undefined && attraction.longitude !== undefined
-        ? distanceBetween(attraction.latitude, attraction.longitude, locationOrigin)
-        : undefined,
-    }));
+    .map((attraction) => {
+      const placeId = attraction.routeId?.replace(/^place-/, '') || '';
+      const details = osmPlaceDetails[placeId];
+      return {
+        ...attraction,
+        openingHours: attraction.openingHours || details?.openingHours,
+        phone: attraction.phone || details?.phone,
+        popularity: {
+          rating: popularitySignals[attraction.key]?.rating,
+          reviewCount: popularitySignals[attraction.key]?.reviewCount,
+        },
+        seasonal: getSeasonalRecommendation(attraction, thailandMonth),
+        distanceKm: locationOrigin && attraction.latitude !== undefined && attraction.longitude !== undefined
+          ? distanceBetween(attraction.latitude, attraction.longitude, locationOrigin)
+          : undefined,
+      };
+    });
   const selectedPlaceAttraction = selectedPlace
     ? {
         id: -1,
@@ -881,24 +1099,37 @@ export default function HomePage() {
         entranceFee: selectedPlace.entranceFee,
         recommendedTime: selectedPlace.recommendedTime,
         openingHours: selectedPlace.openingHours,
+        phone: selectedPlace.phone,
         travelCaution: selectedPlace.travelCaution,
         suitableFor: [] as string[],
         createdAt: undefined,
+        popularity: {
+          rating: popularitySignals[selectedPlace.key]?.rating,
+          reviewCount: popularitySignals[selectedPlace.key]?.reviewCount,
+        },
+        seasonal: getSeasonalRecommendation(selectedPlace, thailandMonth),
         distanceKm: locationOrigin && selectedPlace.lat && selectedPlace.lon
           ? distanceBetween(Number(selectedPlace.lat), Number(selectedPlace.lon), locationOrigin)
           : undefined,
       }
     : null;
   const recommendationAttractions = selectedPlaceAttraction
+    && isThaiProvince(selectedPlaceAttraction.province)
     && (selectedCategory === 'ทั้งหมด' || selectedPlaceAttraction.category === selectedCategory)
     ? [selectedPlaceAttraction, ...filteredAttractions.filter((attraction) => attraction.key !== selectedPlaceAttraction.key)]
     : filteredAttractions;
-  const displayedAttractions = [...recommendationAttractions];
+  const popularityCandidates = selectPopularityCandidates(recommendationAttractions);
+  const rankedCandidates = popularityCandidates.map((attraction) => ({
+    ...attraction,
+    popularity: {
+      rating: popularitySignals[attraction.key]?.rating ?? attraction.rating,
+      reviewCount: popularitySignals[attraction.key]?.reviewCount ?? attraction.reviewCount,
+    },
+  }));
+  const rankedAttractions = rankPopularityCandidates(rankedCandidates);
+  const displayedAttractions = [...rankedAttractions];
   if (discoveryCategory === 'คะแนนสูง') {
-    for (let index = displayedAttractions.length - 1; index >= 0; index -= 1) {
-      if (displayedAttractions[index].rating === undefined) displayedAttractions.splice(index, 1);
-    }
-    displayedAttractions.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
+    displayedAttractions.sort((a, b) => (b.popularity.rating ?? -1) - (a.popularity.rating ?? -1));
   } else if (discoveryCategory === 'ใกล้คุณ') {
     for (let index = displayedAttractions.length - 1; index >= 0; index -= 1) {
       if (displayedAttractions[index].distanceKm === undefined) displayedAttractions.splice(index, 1);
@@ -920,12 +1151,21 @@ export default function HomePage() {
   }
   if (discoveryCategory === 'ใกล้คุณ') {
     displayedAttractions.splice(10);
+  } else {
+    displayedAttractions.splice(MAX_POPULARITY_RESULTS);
   }
-  const recommendedAttractions = displayedAttractions.slice(0, 12);
-  const recommendedKeys = new Set(
-    recommendedAttractions
-      .map((attraction) => attraction.key),
-  );
+  const recommendedAttractions = displayedAttractions.map((attraction) => ({
+    ...attraction,
+    rating: attraction.popularity.rating,
+    reviewCount: attraction.popularity.reviewCount,
+    popularityScore: attraction.popularity.rating && attraction.popularity.reviewCount
+      ? scorePopularity(attraction.popularity.rating, attraction.popularity.reviewCount, attraction.seasonal.score)
+      : undefined,
+    recommendationReason: attraction.seasonal.score > 0
+      ? attraction.seasonal.reason
+      : (attraction.popularity.reviewCount || 0) >= 100 ? 'รีวิวสูง' : 'ยอดนิยม',
+  }));
+  const recommendedKeys = new Set(recommendedAttractions.map((attraction) => attraction.key));
   const nearbyAttractions = locationOrigin
     ? recommendationAttractions
         .filter((attraction) => attraction.distanceKm !== undefined
@@ -960,7 +1200,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, [tatPlaces, photonPlaces]);
+  }, [ckanPlaces, photonPlaces]);
   const popularDestinations = [...destinationGroups.values()]
     .filter(({ province, attraction }) => Boolean(attraction.images?.[0] || destinationImages[province]))
     .sort((a, b) => b.count - a.count)
@@ -970,8 +1210,8 @@ export default function HomePage() {
   const heroLongitude = heroAttraction?.longitude;
 
   useEffect(() => {
-    const latitude = heroLatitude ?? alertLocation?.latitude;
-    const longitude = heroLongitude ?? alertLocation?.longitude;
+    const latitude = alertLocation?.latitude;
+    const longitude = alertLocation?.longitude;
     if (latitude === undefined || longitude === undefined) {
       setTemperatureWeather(null);
       setTemperatureWeatherLoading(false);
@@ -994,7 +1234,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, [heroLatitude, heroLongitude, alertLocation?.latitude, alertLocation?.longitude]);
+  }, [alertLocation?.latitude, alertLocation?.longitude]);
 
   useEffect(() => {
     const existingImage = heroAttraction?.images?.[0] || '';
@@ -1011,42 +1251,9 @@ export default function HomePage() {
     };
   }, [heroAttraction?.key, heroAttraction?.title, heroAttraction?.images?.[0], heroLatitude, heroLongitude]);
 
-  useEffect(() => {
-    if (heroLatitude === undefined || heroLongitude === undefined) {
-      setHeroRegionalAlert(null);
-      setHeroRegionalAlertLoading(false);
-      setHeroRegionalAlertError('');
-      return;
-    }
-
-    let active = true;
-    setHeroRegionalAlert(null);
-    setHeroRegionalAlertLoading(true);
-    setHeroRegionalAlertError('');
-    fetchRegionalAlerts({ latitude: heroLatitude, longitude: heroLongitude })
-      .then((data) => {
-        if (active) setHeroRegionalAlert(data);
-      })
-      .catch(() => {
-        if (active) setHeroRegionalAlertError('ไม่สามารถโหลดข้อมูลสภาพอากาศของสถานที่นี้ได้');
-      })
-      .finally(() => {
-        if (active) setHeroRegionalAlertLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [heroAttraction?.key, heroLatitude, heroLongitude]);
-
-  const displayedRegionalAlert = heroLatitude !== undefined && heroLongitude !== undefined
-    ? heroRegionalAlert
-    : regionalAlert;
-  const displayedRegionalAlertLoading = heroLatitude !== undefined && heroLongitude !== undefined
-    ? heroRegionalAlertLoading
-    : regionalAlertLoading;
-  const displayedRegionalAlertError = heroLatitude !== undefined && heroLongitude !== undefined
-    ? heroRegionalAlertError
-    : regionalAlertError;
+  const displayedRegionalAlert = regionalAlert;
+  const displayedRegionalAlertLoading = regionalAlertLoading;
+  const displayedRegionalAlertError = regionalAlertError;
   const regionalAirQuality = displayedRegionalAlert?.aqi != null || displayedRegionalAlert?.pm25 != null
     ? classifyAqi(displayedRegionalAlert?.aqi ?? null, displayedRegionalAlert?.pm25 ?? null)
     : null;
@@ -1131,9 +1338,7 @@ export default function HomePage() {
         <div className="flex min-w-0 items-center gap-1.5">
           <MapPinned className={`h-3.5 w-3.5 shrink-0 ${alertCardColors.text}`} />
           <h2 className={`truncate text-[11px] font-bold ${alertCardColors.text}`}>
-            {heroAttraction?.province
-              ? `จังหวัด${heroAttraction.province} ตอนนี้`
-              : alertLocation ? `จังหวัด${alertLocation.province} ตอนนี้` : 'สภาพอากาศตำแหน่งปัจจุบัน'}
+            {alertLocation ? `จังหวัด${alertLocation.province} ตอนนี้` : 'สภาพอากาศตำแหน่งปัจจุบัน'}
           </h2>
         </div>
         <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${alertCardColors.icon}`}>
@@ -1211,6 +1416,7 @@ export default function HomePage() {
       lat: attraction.latitude !== undefined ? String(attraction.latitude) : undefined,
       lon: attraction.longitude !== undefined ? String(attraction.longitude) : undefined,
       openingHours: attraction.openingHours,
+      phone: attraction.phone,
       recommendedTime: attraction.recommendedTime,
       entranceFee: attraction.entranceFee,
       reviewCount: attraction.reviewCount,
@@ -1515,7 +1721,6 @@ export default function HomePage() {
                 <Flame className="mt-0.5 h-5 w-5 shrink-0 fill-blue-600 text-blue-600" />
                 <div>
                   <h2 className="text-lg font-bold leading-tight text-[#1F2E7A] sm:text-xl">สถานที่แนะนำ</h2>
-                  <p className="mt-1 text-xs text-slate-500 sm:text-sm"></p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1548,28 +1753,63 @@ export default function HomePage() {
               className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2"
               aria-label="รายการสถานที่แนะนำ"
             >
-              {attractionsLoading ? (
+              {attractionsLoading && sourceAttractions.length === 0 ? (
                 <p className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-500" role="status">
                   กำลังโหลดสถานที่ท่องเที่ยวจากแหล่งข้อมูลจริง…
                 </p>
-              ) : attractionsError ? (
-                <p className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-8 text-center text-sm text-amber-800" role="alert">
-                  {attractionsError}
-                </p>
-              ) : displayedAttractions.length === 0 ? (
-                <p className="w-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
-                  ไม่พบสถานที่จากข้อมูลที่เชื่อมต่อ ลองเลือกหมวดหมู่อื่นหรือค้นหาสถานที่
-                </p>
-              ) : recommendedAttractions.map((attraction) => (
-                <div key={attraction.key} className="w-[min(78vw,220px)] shrink-0 snap-start sm:w-[clamp(220px,24vw,260px)]">
-                  <AttractionCard
-                    attraction={attraction}
-                    isFavorite={favoriteIds.includes(attraction.key)}
-                    onToggleFavorite={() => toggleAttractionFavorite(attraction)}
-                    variant="recommended"
-                  />
-                </div>
-              ))}
+              ) : (
+                <>
+                  {attractionsError && recommendedAttractions.length > 0 && (
+                    <p className="w-full shrink-0 self-center text-xs text-slate-500" role="status">
+                      กำลังแสดงข้อมูลสถานที่ที่มี แม้โหลดข้อมูลล่าสุดได้ไม่ครบ
+                    </p>
+                  )}
+                  {recommendedAttractions.length === 0 ? (
+                    <p className="w-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+                      ไม่พบสถานที่ในหมวดหมู่ที่เลือก
+                    </p>
+                  ) : (
+                    <>
+                      {popularityCandidates.map((attraction) => (
+                        <PopularityLookup
+                          key={`popularity-${attraction.key}`}
+                          attraction={attraction}
+                          onPopularityData={reportPopularityData}
+                        />
+                      ))}
+                      {recommendedAttractions.map((attraction) => {
+                    const signal = popularitySignals[attraction.key];
+                    const rating = signal?.rating ?? attraction.rating;
+                    const reviewCount = signal?.reviewCount ?? attraction.reviewCount;
+                    const popularityScore = typeof rating === 'number' && typeof reviewCount === 'number'
+                      ? scorePopularity(rating, reviewCount, attraction.seasonal.score)
+                      : undefined;
+                    return (
+                      <div
+                        key={attraction.key}
+                        className="w-[min(78vw,220px)] shrink-0 snap-start sm:w-[clamp(220px,24vw,260px)]"
+                      >
+                        <AttractionCard
+                          attraction={{
+                            ...attraction,
+                            rating,
+                            reviewCount,
+                            popularityScore,
+                            recommendationReason: attraction.recommendationReason,
+                          }}
+                          isFavorite={favoriteIds.includes(attraction.key)}
+                          onToggleFavorite={() => toggleAttractionFavorite(attraction)}
+                          variant="recommended"
+                          lookupReviews={false}
+                          onPopularityData={reportPopularityData}
+                        />
+                      </div>
+                    );
+                      })}
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </section>
 
@@ -1590,7 +1830,6 @@ export default function HomePage() {
                       setSearchQuery(province);
                       setSearchFlowMessage('');
                       setSelectedCategory('ทั้งหมด');
-                      setDiscoveryCategory('สถานที่ยอดนิยม');
                       document.getElementById('recommended-attractions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }}
                     className="group min-w-0 overflow-hidden rounded-xl border border-white bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"

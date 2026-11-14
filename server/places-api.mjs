@@ -1,7 +1,106 @@
 const GOOGLE_PLACES_BASE = 'https://places.googleapis.com/v1';
 const REVIEW_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
+const WIKIPEDIA_CACHE_DURATION_MS = 6 * 60 * 60 * 1000;
+const OSM_DETAILS_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
+const WIKIPEDIA_TIMEOUT_MS = 8000;
 const reviewCache = new Map();
 const reviewRequests = new Map();
+const wikipediaCache = new Map();
+const wikipediaRequests = new Map();
+const osmDetailsCache = new Map();
+let osmLookupQueue = Promise.resolve();
+let lastOsmLookupAt = 0;
+
+function formatOsmDetails(id, osmId, place) {
+  const latitude = Number(place.lat);
+  const longitude = Number(place.lon);
+  const tags = place.extratags || {};
+  const firstTag = (...keys) => keys
+    .map((key) => tags[key])
+    .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+  const website = firstTag('contact:website', 'website', 'url');
+  const image = firstTag('image');
+  const osmType = osmId[1] === 'N' ? 'node' : osmId[1] === 'W' ? 'way' : 'relation';
+  return {
+    id,
+    name: place.name || place.display_name?.split(',')[0]?.trim() || '',
+    address: place.display_name || '',
+    province: place.address?.state || place.address?.province || '',
+    latitude: Number.isFinite(latitude) ? latitude : undefined,
+    longitude: Number.isFinite(longitude) ? longitude : undefined,
+    types: [place.class, place.type].filter(Boolean),
+    description: firstTag('description:th', 'description'),
+    openingHours: firstTag('opening_hours'),
+    phone: firstTag('contact:phone', 'phone', 'contact:mobile', 'mobile', 'telephone'),
+    email: firstTag('contact:email', 'email'),
+    websiteUri: /^https?:\/\//i.test(website) ? website : undefined,
+    operator: firstTag('operator'),
+    fee: firstTag('fee'),
+    charge: firstTag('charge'),
+    photos: /^https?:\/\//i.test(image) ? [image] : [],
+    sourceUrl: `https://www.openstreetmap.org/${osmType}/${osmId[2]}`,
+  };
+}
+
+async function lookupOsmDetailsBatch(entries) {
+  const result = new Map();
+  const missing = [];
+  entries.forEach(({ id, osmId }) => {
+    const cached = osmDetailsCache.get(id);
+    if (cached && cached.expiresAt > Date.now()) {
+      result.set(id, cached.value);
+    } else {
+      if (cached) osmDetailsCache.delete(id);
+      missing.push({ id, osmId });
+    }
+  });
+  if (missing.length === 0) return result;
+
+  const request = (async () => {
+    const previous = osmLookupQueue;
+    let release;
+    osmLookupQueue = new Promise((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const delay = Math.max(0, lastOsmLookupAt + 1000 - Date.now());
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      lastOsmLookupAt = Date.now();
+
+      const lookupUrl = new URL('https://nominatim.openstreetmap.org/lookup');
+      lookupUrl.searchParams.set('format', 'jsonv2');
+      lookupUrl.searchParams.set('addressdetails', '1');
+      lookupUrl.searchParams.set('extratags', '1');
+      lookupUrl.searchParams.set('osm_ids', missing.map(({ osmId }) => `${osmId[1]}${osmId[2]}`).join(','));
+      const lookup = await fetch(lookupUrl, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'MobileTourismApp/1.0 (place detail lookup)',
+        },
+      });
+      if (!lookup.ok) {
+        const error = new Error(`โหลดรายละเอียดสถานที่ไม่สำเร็จ (${lookup.status})`);
+        error.statusCode = lookup.status;
+        throw error;
+      }
+      const places = await lookup.json();
+      const placeByOsmId = new Map(places.map((place) => [`${place.osm_type?.[0]?.toUpperCase()}${place.osm_id}`, place]));
+      missing.forEach(({ id, osmId }) => {
+        const place = placeByOsmId.get(`${osmId[1]}${osmId[2]}`);
+        if (!place) {
+          result.set(id, null);
+          return;
+        }
+        const details = formatOsmDetails(id, osmId, place);
+        osmDetailsCache.set(id, { value: details, expiresAt: Date.now() + OSM_DETAILS_CACHE_DURATION_MS });
+        result.set(id, details);
+      });
+    } finally {
+      release();
+    }
+  })();
+  await request;
+  return result;
+}
 
 function sendJson(response, statusCode, value) {
   response.statusCode = statusCode;
@@ -73,6 +172,151 @@ function distanceInMeters(from, to) {
   const arc = Math.sin(latitudeDelta / 2) ** 2
     + Math.cos(radians(from.latitude)) * Math.cos(radians(to.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
   return 6371000 * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
+function wikipediaTitleMatches(requestedName, candidateTitle, hasCoordinates) {
+  const requested = normalizePlaceName(requestedName);
+  const candidate = normalizePlaceName(candidateTitle);
+  if (!requested || !candidate) return false;
+  if (requested === candidate) return true;
+  const shorterLength = Math.min(requested.length, candidate.length);
+  const longerLength = Math.max(requested.length, candidate.length);
+  return shorterLength >= 4
+    && (requested.includes(candidate) || candidate.includes(requested))
+    && shorterLength / longerLength >= (hasCoordinates ? 0.35 : 0.65);
+}
+
+function stripHtml(value = '') {
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function wikipediaRequest(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), WIKIPEDIA_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Projecjob Tourism App/1.0 (https://github.com/yanisa1903/Projecjob)',
+      },
+    });
+    if (!response.ok) {
+      const error = new Error(`Wikipedia API ตอบกลับ ${response.status}`);
+      error.statusCode = 502;
+      throw error;
+    }
+    return await response.json();
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error('Wikipedia API ใช้เวลาตอบกลับนานเกินกำหนด');
+      timeoutError.statusCode = 504;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getWikipediaImage(source) {
+  if (!source) return undefined;
+  let imageUrl;
+  try {
+    imageUrl = new URL(source);
+  } catch {
+    return undefined;
+  }
+  if (!['upload.wikimedia.org', 'thumb.wikimedia.org'].includes(imageUrl.hostname)
+    || !imageUrl.pathname.startsWith('/wikipedia/commons/')) {
+    return undefined;
+  }
+  const imagePath = imageUrl.pathname.split('/');
+  const thumbnailIndex = imagePath.indexOf('thumb');
+  const filename = decodeURIComponent(
+    thumbnailIndex >= 0 ? imagePath[thumbnailIndex + 3] || '' : imagePath.at(-1) || '',
+  );
+  if (!filename) return undefined;
+  const commonsUrl = new URL('https://commons.wikimedia.org/w/api.php');
+  commonsUrl.searchParams.set('action', 'query');
+  commonsUrl.searchParams.set('titles', `File:${filename}`);
+  commonsUrl.searchParams.set('prop', 'imageinfo');
+  commonsUrl.searchParams.set('iiprop', 'url|extmetadata');
+  commonsUrl.searchParams.set('iiurlwidth', '900');
+  commonsUrl.searchParams.set('format', 'json');
+  const data = await wikipediaRequest(commonsUrl);
+  const imageInfo = Object.values(data.query?.pages || {})[0]?.imageinfo?.[0];
+  const metadata = imageInfo?.extmetadata || {};
+  const attribution = stripHtml(metadata.Attribution?.value || metadata.Artist?.value || '');
+  const license = stripHtml(metadata.LicenseShortName?.value || '');
+  const licenseUrl = metadata.LicenseUrl?.value;
+  if (!imageInfo?.thumburl || !attribution || !license || !licenseUrl) return undefined;
+  return {
+    url: imageInfo.thumburl,
+    attribution,
+    license,
+    licenseUrl,
+    sourceUrl: imageInfo.descriptionurl,
+  };
+}
+
+async function findWikipediaPlace({ name, province, latitude, longitude }) {
+  const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const languages = ['th', 'en'];
+  for (const language of languages) {
+    const searchUrl = new URL(`https://${language}.wikipedia.org/w/api.php`);
+    searchUrl.searchParams.set('action', 'query');
+    searchUrl.searchParams.set('list', 'search');
+    searchUrl.searchParams.set('srsearch', [name, province].filter(Boolean).join(' '));
+    searchUrl.searchParams.set('srnamespace', '0');
+    searchUrl.searchParams.set('srlimit', '5');
+    searchUrl.searchParams.set('format', 'json');
+    const searchData = await wikipediaRequest(searchUrl);
+    for (const candidate of searchData.query?.search || []) {
+      if (!wikipediaTitleMatches(name, candidate.title || '', hasCoordinates)) continue;
+      const summaryUrl = new URL(
+        `https://${language}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(candidate.title.replace(/ /g, '_'))}`,
+      );
+      let summary;
+      try {
+        summary = await wikipediaRequest(summaryUrl);
+      } catch (error) {
+        if (error?.statusCode === 502) continue;
+        throw error;
+      }
+      if (!wikipediaTitleMatches(name, summary.title || candidate.title, hasCoordinates)) continue;
+      const summaryCoordinates = summary.coordinates;
+      if (hasCoordinates && Number.isFinite(summaryCoordinates?.lat) && Number.isFinite(summaryCoordinates?.lon)
+        && distanceInMeters(
+          { latitude, longitude },
+          { latitude: summaryCoordinates.lat, longitude: summaryCoordinates.lon },
+        ) > 75_000) continue;
+      let image;
+      try {
+        image = await getWikipediaImage(summary.originalimage?.source || summary.thumbnail?.source);
+      } catch (error) {
+        console.warn('Unable to load Wikimedia Commons image attribution', error);
+        image = undefined;
+      }
+      return {
+        available: true,
+        language,
+        title: summary.title,
+        description: summary.extract || '',
+        articleUrl: summary.content_urls?.desktop?.page || '',
+        image,
+      };
+    }
+  }
+  return { available: false };
 }
 
 async function findGooglePlaceReview({ name, province, latitude, longitude, placeId }, apiKey) {
@@ -172,6 +416,44 @@ async function findGooglePlaceReview({ name, province, latitude, longitude, plac
 export async function handlePlacesApi(request, response, apiKey) {
   const requestUrl = new URL(request.url, 'http://localhost');
   if (!requestUrl.pathname.startsWith('/api/places/')) return false;
+  if (requestUrl.pathname === '/api/places/knowledge' && request.method === 'GET') {
+    const name = requestUrl.searchParams.get('name')?.trim() || '';
+    const province = requestUrl.searchParams.get('province')?.trim() || '';
+    const latitude = requestUrl.searchParams.has('lat') ? Number(requestUrl.searchParams.get('lat')) : undefined;
+    const longitude = requestUrl.searchParams.has('lon') ? Number(requestUrl.searchParams.get('lon')) : undefined;
+    if (!name || name.length > 200 || province.length > 100
+      || (latitude !== undefined && (!Number.isFinite(latitude) || latitude < 5.6 || latitude > 20.5))
+      || (longitude !== undefined && (!Number.isFinite(longitude) || longitude < 97.3 || longitude > 105.7))) {
+      sendJson(response, 400, { error: 'ต้องระบุชื่อสถานที่และข้อมูลตำแหน่งให้ถูกต้อง' });
+      return true;
+    }
+    const cacheKey = `${normalizePlaceName(name)}:${normalizePlaceName(province)}:${latitude ?? ''}:${longitude ?? ''}`;
+    const cached = wikipediaCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      sendJson(response, 200, cached.value);
+      return true;
+    }
+    if (cached) wikipediaCache.delete(cacheKey);
+    try {
+      let wikipediaRequest = wikipediaRequests.get(cacheKey);
+      if (!wikipediaRequest) {
+        wikipediaRequest = findWikipediaPlace({ name, province, latitude, longitude })
+          .then((value) => {
+            wikipediaCache.set(cacheKey, { value, expiresAt: Date.now() + WIKIPEDIA_CACHE_DURATION_MS });
+            return value;
+          })
+          .finally(() => wikipediaRequests.delete(cacheKey));
+        wikipediaRequests.set(cacheKey, wikipediaRequest);
+      }
+      sendJson(response, 200, await wikipediaRequest);
+      return true;
+    } catch (error) {
+      sendJson(response, Number.isInteger(error?.statusCode) ? error.statusCode : 502, {
+        error: error instanceof Error ? error.message : 'ไม่สามารถโหลดข้อมูลเสริมจาก Wikipedia ได้',
+      });
+      return true;
+    }
+  }
   if (requestUrl.pathname === '/api/places/reviews' && request.method === 'GET') {
     const name = requestUrl.searchParams.get('name')?.trim() || '';
     const province = requestUrl.searchParams.get('province')?.trim() || '';
@@ -217,44 +499,26 @@ export async function handlePlacesApi(request, response, apiKey) {
     }
   }
   if (requestUrl.pathname === '/api/places/osm-details' && request.method === 'GET') {
-    const osmId = requestUrl.searchParams.get('id')?.match(/^osm:([NRW]):(\d+)$/);
-    if (!osmId) {
+    const requestedIds = requestUrl.searchParams.get('ids')?.split(',') || [requestUrl.searchParams.get('id') || ''];
+    const entries = [...new Set(requestedIds)]
+      .map((id) => ({ id, osmId: id.match(/^osm:([NRW]):(\d+)$/) }))
+      .filter((entry) => Boolean(entry.osmId));
+    if (entries.length === 0 || entries.length !== new Set(requestedIds).size || entries.length > 50) {
       sendJson(response, 400, { error: 'รหัสสถานที่ OpenStreetMap ไม่ถูกต้อง' });
       return true;
     }
     try {
-      const lookupUrl = new URL('https://nominatim.openstreetmap.org/lookup');
-      lookupUrl.searchParams.set('format', 'jsonv2');
-      lookupUrl.searchParams.set('addressdetails', '1');
-      lookupUrl.searchParams.set('extratags', '1');
-      lookupUrl.searchParams.set('osm_ids', `${osmId[1]}${osmId[2]}`);
-      const lookup = await fetch(lookupUrl, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'MobileTourismApp/1.0 (place detail lookup)',
-        },
-      });
-      if (!lookup.ok) {
-        sendJson(response, lookup.status, { error: `โหลดรายละเอียดสถานที่ไม่สำเร็จ (${lookup.status})` });
+      const details = await lookupOsmDetailsBatch(entries);
+      if (requestUrl.searchParams.has('ids')) {
+        sendJson(response, 200, { places: [...details.values()].filter(Boolean) });
         return true;
       }
-      const [place] = await lookup.json();
+      const place = details.get(entries[0].id);
       if (!place) {
         sendJson(response, 404, { error: 'ไม่พบรายละเอียดสถานที่' });
         return true;
       }
-      const latitude = Number(place.lat);
-      const longitude = Number(place.lon);
-      sendJson(response, 200, {
-        id: requestUrl.searchParams.get('id'),
-        name: place.name || place.display_name?.split(',')[0]?.trim() || '',
-        address: place.display_name || '',
-        province: place.address?.state || place.address?.province || '',
-        latitude: Number.isFinite(latitude) ? latitude : undefined,
-        longitude: Number.isFinite(longitude) ? longitude : undefined,
-        types: [place.class, place.type].filter(Boolean),
-        photos: [],
-      });
+      sendJson(response, 200, place);
       return true;
     } catch (error) {
       sendJson(response, 502, {

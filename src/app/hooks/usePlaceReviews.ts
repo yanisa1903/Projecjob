@@ -27,9 +27,30 @@ interface ReviewLookup {
   placeId?: string;
   latitude?: number;
   longitude?: number;
+  enabled?: boolean;
 }
 
 const REVIEW_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
+const MAX_CONCURRENT_REVIEW_LOOKUPS = 4;
+let activeReviewLookups = 0;
+const queuedReviewLookups: Array<() => void> = [];
+
+async function fetchReviewWithLimit(url: string, signal: AbortSignal) {
+  if (activeReviewLookups >= MAX_CONCURRENT_REVIEW_LOOKUPS) {
+    await new Promise<void>((resolve) => queuedReviewLookups.push(resolve));
+  }
+  if (signal.aborted) {
+    queuedReviewLookups.shift()?.();
+    throw new DOMException('The request was aborted', 'AbortError');
+  }
+  activeReviewLookups += 1;
+  try {
+    return await fetch(url, { signal });
+  } finally {
+    activeReviewLookups -= 1;
+    queuedReviewLookups.shift()?.();
+  }
+}
 
 function cacheKey(name: string, province: string, lookup: ReviewLookup) {
   return `place-review-v2:${lookup.placeId || ''}:${name.trim().toLocaleLowerCase('th')}:${province.trim().toLocaleLowerCase('th')}:${lookup.latitude ?? ''}:${lookup.longitude ?? ''}`;
@@ -52,11 +73,19 @@ function readCachedReview(key: string): PlaceReviewSummary | null | undefined {
 
 export function usePlaceReviews(name: string, province: string, lookup: ReviewLookup = {}) {
   const key = cacheKey(name, province, lookup);
-  const [review, setReview] = useState<PlaceReviewSummary | null>(() => readCachedReview(key) ?? null);
-  const [isLoading, setIsLoading] = useState(() => readCachedReview(key) === undefined);
+  const enabled = lookup.enabled !== false;
+  const [review, setReview] = useState<PlaceReviewSummary | null>(() => enabled ? readCachedReview(key) ?? null : null);
+  const [isLoading, setIsLoading] = useState(() => enabled && readCachedReview(key) === undefined);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!enabled) {
+      setReview(null);
+      setIsLoading(false);
+      setError('');
+      return;
+    }
+
     const cachedReview = readCachedReview(key);
     if (cachedReview !== undefined) {
       setReview(cachedReview);
@@ -74,7 +103,7 @@ export function usePlaceReviews(name: string, province: string, lookup: ReviewLo
     if (lookup.placeId) params.set('placeId', lookup.placeId);
     if (lookup.latitude !== undefined) params.set('lat', String(lookup.latitude));
     if (lookup.longitude !== undefined) params.set('lon', String(lookup.longitude));
-    fetch(`/api/places/reviews?${params.toString()}`, { signal: controller.signal })
+    fetchReviewWithLimit(`/api/places/reviews?${params.toString()}`, controller.signal)
       .then(async (response) => {
         if (!response.ok) {
           const payload = await response.json().catch(() => null) as { error?: string } | null;
@@ -102,7 +131,7 @@ export function usePlaceReviews(name: string, province: string, lookup: ReviewLo
         if (!controller.signal.aborted) setIsLoading(false);
       });
     return () => controller.abort();
-  }, [key, lookup.latitude, lookup.longitude, lookup.placeId, name, province]);
+  }, [enabled, key, lookup.latitude, lookup.longitude, lookup.placeId, name, province]);
 
   return { review, isLoading, error };
 }

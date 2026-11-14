@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
       // Tailwind is not being actively used – do not remove them
       react(),
       tailwindcss(),
-      placesProxyPlugin(env.GOOGLE_PLACES_API_KEY),
+      placesProxyPlugin(env.GOOGLE_PLACES_API_KEY, env.TAT_API_KEY, env),
     ],
     resolve: {
       alias: {

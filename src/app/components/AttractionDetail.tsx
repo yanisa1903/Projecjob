@@ -5,12 +5,15 @@ import { fetchPlaceImages, lockThreeImages } from '../utils/placeImages';
 import { fetchWindyWeather } from '../utils/windyApi';
 import WeatherCard from './WeatherCard';
 import { getWeatherTheme } from '../utils/weatherTheme';
-import { getPlaceDetails, getPlacePhotoUrl, type PlaceDetails } from '../services/placesApi';
+import { getPlaceDetails, getPlaceKnowledge, getPlacePhotoUrl, type PlaceDetails, type PlaceKnowledge } from '../services/placesApi';
 import { THAI_PROVINCES } from '../data/provinces';
 import { useUserCoordinates } from '../context/UserLocationContext';
 import { removeFavoritePlace, saveFavoritePlace } from '../utils/favorites';
 import { describeWeatherCode, fetchTripForecast, getForecastLastDateString, MAX_FORECAST_DAYS, type TripForecast } from '../utils/tripForecast';
 import { usePlaceReviews } from '../hooks/usePlaceReviews';
+import { fetchTatPlace, type TatAttraction } from '../utils/tatApi';
+import { fetchCkanRecord, type CkanPlace, type CkanResourceKind } from '../services/ckanApi';
+import { normalizePlaceHighlights } from '../utils/placeHighlights';
 
 type NearbyPlace = {
   id: number;
@@ -32,26 +35,70 @@ const FULL_OPENING_DAY_LABELS: Record<string, string> = {
   saturday: 'เสาร์',
   sunday: 'อาทิตย์',
 };
+const THAI_OPENING_DAY_LABELS: Record<string, string> = {
+  'วันจันทร์': 'จันทร์',
+  'วันอังคาร': 'อังคาร',
+  'วันพุธ': 'พุธ',
+  'วันพฤหัสบดี': 'พฤหัสบดี',
+  'วันศุกร์': 'ศุกร์',
+  'วันเสาร์': 'เสาร์',
+  'วันอาทิตย์': 'อาทิตย์',
+};
 
-function formatOpeningHours(hours: string) {
-  const segments = hours.split(/[;\n]/).map((segment) => segment.trim()).filter(Boolean);
+function parseCkanRouteId(id?: string) {
+  const match = id?.match(/^ckan-(attractions|activities|accommodations|restaurants)-(.+)$/);
+  if (!match) return null;
+  const kind = match[1];
+  switch (kind) {
+    case 'attractions':
+    case 'activities':
+    case 'accommodations':
+    case 'restaurants':
+      return { kind, id: match[2] };
+    default:
+      return null;
+  }
+}
+
+function formatOpeningHours(hours: unknown) {
+  if (typeof hours !== 'string' || !hours.trim()) return null;
+  const segments = hours.split(/[;\n]/).flatMap((segment) => {
+    const value = typeof segment === 'string' ? segment.trim() : '';
+    return value ? [value] : [];
+  });
   const entries = segments.flatMap((segment) => {
-    const fullDay = segment.match(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday):\s*(.+)$/i);
-    if (fullDay) return [[FULL_OPENING_DAY_LABELS[fullDay[1].toLowerCase()], fullDay[2]] as const];
-    const match = segment.match(/^((?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?(?:,(?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?)*)\s+(.+)$/);
+    const normalizedSegment = segment.replace(/https?:\/\/(?:www\.)?schema\.org\//gi, '');
+    const fullDay = normalizedSegment.match(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|วันจันทร์|วันอังคาร|วันพุธ|วันพฤหัสบดี|วันศุกร์|วันเสาร์|วันอาทิตย์):\s*(.+)$/i);
+    if (fullDay) {
+      const day = FULL_OPENING_DAY_LABELS[fullDay[1].toLowerCase()] || THAI_OPENING_DAY_LABELS[fullDay[1]];
+      const schedule = typeof fullDay[2] === 'string' ? fullDay[2].trim() : '';
+      return day && schedule ? [{ day, schedule }] : [];
+    }
+    const match = normalizedSegment.match(/^((?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?(?:,(?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?)*)\s+(.+)$/);
     if (!match) return [];
+    const schedule = typeof match[3] === 'string' ? match[3].trim() : '';
+    if (!schedule) return [];
     const days = match[1].split(',').flatMap((range) => {
+      if (typeof range !== 'string') return [];
       const [start, end] = range.split('-');
+      if (!start) return [];
       const startIndex = OPENING_DAYS.indexOf(start);
       const endIndex = end ? OPENING_DAYS.indexOf(end) : startIndex;
       if (startIndex < 0 || endIndex < startIndex) return [];
       return OPENING_DAYS.slice(startIndex, endIndex + 1);
     });
-    return days.map((day) => [OPENING_DAY_LABELS[OPENING_DAYS.indexOf(day)], match[3]] as const);
+    return days.flatMap((day) => {
+      const label = OPENING_DAY_LABELS[OPENING_DAYS.indexOf(day)];
+      return label ? [{ day: label, schedule }] : [];
+    });
   });
 
   if (!entries.length) return null;
-  return Object.fromEntries(entries);
+  if (entries.length === OPENING_DAY_LABELS.length
+    && entries.every((entry) => entry.schedule === entries[0].schedule)) {
+    return [{ day: 'ทุกวัน', schedule: entries[0].schedule }];
+  }
+  return entries;
 }
 
 function formatAddress(address?: Record<string, string>) {
@@ -73,6 +120,16 @@ function getProvince(location: string, providedProvince?: string) {
   if (providedProvince) return providedProvince.replace(/^จังหวัด/, '');
   const provinceMatch = location.match(/จังหวัด\s*([^,\d]+)/);
   return provinceMatch?.[1]?.trim() || 'ไม่มีข้อมูล';
+}
+
+function getShortPlaceDescription(description: string, maxLength = 110) {
+  const normalized = description.replace(/\s+/g, ' ').trim();
+  const firstSentence = normalized.split(/(?<=[.!?。])\s+/u)[0] || normalized;
+  if (firstSentence.length <= maxLength) return firstSentence;
+  const excerpt = Array.from(firstSentence).slice(0, maxLength).join('');
+  const lastSpace = excerpt.lastIndexOf(' ');
+  const shortened = lastSpace >= maxLength * 0.75 ? excerpt.slice(0, lastSpace) : excerpt.trimEnd();
+  return `${shortened}…`;
 }
 
 function distanceInKm(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) {
@@ -104,6 +161,7 @@ export default function AttractionDetail() {
   const navigate = useNavigate();
   const { id: attractionParam, placeId } = useParams();
   const id = attractionParam || (placeId ? `place-${placeId}` : undefined);
+  const ckanRoute = parseCkanRouteId(id);
   const routeLocation = useLocation();
   const routeState = routeLocation.state as {
     placeId?: string;
@@ -117,9 +175,10 @@ export default function AttractionDetail() {
     lat?: string;
     lon?: string;
     phone?: string;
+    email?: string;
+    websites?: string[];
     website?: string;
     facebook?: string;
-    email?: string;
     openingHours?: string;
     description?: string;
     rating?: number;
@@ -127,12 +186,19 @@ export default function AttractionDetail() {
     recommendedTime?: string;
     reviewCount?: number;
     travelCaution?: string;
+    ckanKind?: CkanResourceKind;
+    ckanId?: string;
+    ckanResourceUrl?: string;
+    ckanEntityUrl?: string;
     favoriteKey?: string;
     departureDate?: string;
     returnDate?: string;
   } | null;
   const [googlePlace, setGooglePlace] = useState<PlaceDetails | null>(null);
   const [googlePlaceError, setGooglePlaceError] = useState('');
+  const [ckanPlace, setCkanPlace] = useState<CkanPlace | null>(null);
+  const [ckanPlaceLoading, setCkanPlaceLoading] = useState(false);
+  const [ckanPlaceError, setCkanPlaceError] = useState('');
   useEffect(() => {
     if (!id?.startsWith('place-')) {
       setGooglePlace(null);
@@ -150,14 +216,42 @@ export default function AttractionDetail() {
       });
     return () => controller.abort();
   }, [id]);
+  useEffect(() => {
+    if (!ckanRoute) {
+      setCkanPlace(null);
+      setCkanPlaceLoading(false);
+      setCkanPlaceError('');
+      return;
+    }
+
+    const controller = new AbortController();
+    setCkanPlace(null);
+    setCkanPlaceLoading(true);
+    setCkanPlaceError('');
+    fetchCkanRecord(ckanRoute.kind, ckanRoute.id, controller.signal)
+      .then(setCkanPlace)
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setCkanPlaceError(error instanceof Error ? error.message : 'ไม่สามารถโหลดข้อมูลจาก CKAN ได้');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCkanPlaceLoading(false);
+      });
+    return () => controller.abort();
+  }, [ckanRoute?.id, ckanRoute?.kind]);
   const activeGooglePlace = id?.startsWith('place-') && googlePlace?.id === id.slice('place-'.length)
     ? googlePlace
+    : null;
+  const activeCkanPlace = ckanRoute
+    && ckanPlace?.id === ckanRoute.id
+    && ckanPlace.kind === ckanRoute.kind
+    ? ckanPlace
     : null;
   const googleProvince = activeGooglePlace
     ? THAI_PROVINCES.find((province) => activeGooglePlace.address.includes(province))
     : undefined;
   const googleImages = activeGooglePlace?.photos
-    .map((photo) => getPlacePhotoUrl(photo))
+    .map((photo) => photo.startsWith('http') ? photo : getPlacePhotoUrl(photo))
     .filter((photo): photo is string => Boolean(photo));
   const locationState = routeState?.title
     ? routeState
@@ -180,7 +274,73 @@ export default function AttractionDetail() {
           website: activeGooglePlace.websiteUri,
           favoriteKey: `google-${activeGooglePlace.id}`,
         }
-      : routeState;
+      : activeCkanPlace
+        ? {
+            ...routeState,
+            ckanKind: activeCkanPlace.kind,
+            ckanId: activeCkanPlace.id,
+            ckanResourceUrl: activeCkanPlace.resourceUrl,
+            ckanEntityUrl: activeCkanPlace.url,
+            title: activeCkanPlace.name,
+            location: activeCkanPlace.address,
+            province: activeCkanPlace.province,
+            category: activeCkanPlace.category,
+            description: activeCkanPlace.description,
+            images: activeCkanPlace.images,
+            lat: activeCkanPlace.latitude === undefined ? undefined : String(activeCkanPlace.latitude),
+            lon: activeCkanPlace.longitude === undefined ? undefined : String(activeCkanPlace.longitude),
+            openingHours: activeCkanPlace.openingHours,
+            phone: activeCkanPlace.phone,
+            email: activeCkanPlace.email,
+            websites: activeCkanPlace.websites,
+            favoriteKey: `ckan-${activeCkanPlace.kind}-${activeCkanPlace.id}`,
+          }
+        : routeState;
+  const [tatPlace, setTatPlace] = useState<TatAttraction | null>(null);
+  const [tatPlaceLoading, setTatPlaceLoading] = useState(false);
+  const [tatPlaceError, setTatPlaceError] = useState('');
+  useEffect(() => {
+    if (ckanRoute) {
+        setTatPlace(null);
+        setTatPlaceLoading(false);
+        setTatPlaceError('');
+        return;
+    }
+    if (id?.startsWith('place-')) {
+        setTatPlace(null);
+        setTatPlaceLoading(false);
+        setTatPlaceError('');
+        return;
+    }
+
+    const title = locationState?.title || activeGooglePlace?.name;
+    if (!title && !id) {
+        setTatPlace(null);
+        setTatPlaceLoading(false);
+        return;
+    }
+
+    let active = true;
+    setTatPlace(null);
+    setTatPlaceLoading(true);
+    setTatPlaceError('');
+    const tatId = id?.startsWith('tat-') ? id.slice('tat-'.length) : undefined;
+    fetchTatPlace(title, tatId)
+        .then((place) => {
+          if (active) setTatPlace(place);
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          setTatPlace(null);
+          setTatPlaceError(error instanceof Error ? error.message : 'ไม่สามารถโหลดข้อมูลสถานที่จาก TAT API ได้');
+        })
+        .finally(() => {
+          if (active) setTatPlaceLoading(false);
+        });
+    return () => {
+        active = false;
+    };
+  }, [id, locationState?.title, activeGooglePlace?.name, ckanRoute?.kind, ckanRoute?.id]);
   const routeSearchParams = new URLSearchParams(routeLocation.search);
   const departureDate = locationState?.departureDate || routeSearchParams.get('departureDate');
   const returnDate = locationState?.returnDate || routeSearchParams.get('returnDate');
@@ -193,19 +353,29 @@ export default function AttractionDetail() {
   const [tripForecastLoading, setTripForecastLoading] = useState(false);
   const [tripForecastError, setTripForecastError] = useState('');
   const [isTripForecastModalOpen, setIsTripForecastModalOpen] = useState(false);
+  const [placeKnowledge, setPlaceKnowledge] = useState<PlaceKnowledge | null>(null);
+  const [placeKnowledgeError, setPlaceKnowledgeError] = useState('');
 
-  const exactImages = locationState?.images?.length ? locationState.images : googleImages || [];
+  const exactImages = activeCkanPlace?.images.length
+    ? activeCkanPlace.images
+    : tatPlace?.images?.length
+    ? tatPlace.images
+    : locationState?.images?.length
+      ? locationState.images
+      : googleImages?.length
+        ? googleImages
+        : placeKnowledge?.image?.url ? [placeKnowledge.image.url] : [];
   const attraction = {
-    title: locationState?.title || activeGooglePlace?.name || 'ไม่พบข้อมูลสถานที่',
+    title: activeCkanPlace?.name || tatPlace?.name || activeGooglePlace?.name || locationState?.title || 'ไม่พบข้อมูลสถานที่',
     images: exactImages,
-    description: locationState?.description || activeGooglePlace?.description || '',
-    location: locationState?.location || activeGooglePlace?.address || '',
-    travelCaution: locationState?.travelCaution || '',
-    hours: locationState?.openingHours || '',
-    phone: locationState?.phone || '',
+    description: activeCkanPlace?.description || tatPlace?.description || activeGooglePlace?.description || locationState?.description || placeKnowledge?.description || '',
+    location: activeCkanPlace ? activeCkanPlace.address : tatPlace?.location || activeGooglePlace?.address || locationState?.location || '',
+    travelCaution: activeCkanPlace ? '' : tatPlace?.travelCaution || locationState?.travelCaution || '',
+    hours: activeCkanPlace ? activeCkanPlace.openingHours : tatPlace?.openingHours || locationState?.openingHours || '',
+    phone: activeCkanPlace ? activeCkanPlace.phone : tatPlace?.contactPhone || locationState?.phone || '',
     mapUrl: locationState?.mapUrl,
   };
-  const reviewProvince = locationState?.province
+  const reviewProvince = tatPlace?.province || locationState?.province
     || (getProvince(attraction.location) !== 'ไม่มีข้อมูล' ? getProvince(attraction.location) : '');
 
   const [weather, setWeather] = useState<{
@@ -223,11 +393,41 @@ export default function AttractionDetail() {
   } | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [weatherError, setWeatherError] = useState(false);
-  const coordinates = locationState?.lat && locationState.lon
-    ? locationState
-    : typeof activeGooglePlace?.latitude === 'number' && typeof activeGooglePlace.longitude === 'number'
-      ? { lat: String(activeGooglePlace.latitude), lon: String(activeGooglePlace.longitude) }
-      : undefined;
+  const coordinates = activeCkanPlace?.latitude !== undefined && activeCkanPlace.longitude !== undefined
+    ? { lat: String(activeCkanPlace.latitude), lon: String(activeCkanPlace.longitude) }
+    : tatPlace?.latitude !== undefined && tatPlace.longitude !== undefined
+    ? { lat: String(tatPlace.latitude), lon: String(tatPlace.longitude) }
+    : locationState?.lat && locationState.lon
+      ? locationState
+      : typeof activeGooglePlace?.latitude === 'number' && typeof activeGooglePlace.longitude === 'number'
+        ? { lat: String(activeGooglePlace.latitude), lon: String(activeGooglePlace.longitude) }
+        : undefined;
+  useEffect(() => {
+    if (!attraction.title || attraction.title === 'ไม่พบข้อมูลสถานที่') {
+        setPlaceKnowledge(null);
+        setPlaceKnowledgeError('');
+        return;
+    }
+    const controller = new AbortController();
+    setPlaceKnowledge(null);
+    setPlaceKnowledgeError('');
+    getPlaceKnowledge(
+        attraction.title,
+        reviewProvince,
+        coordinates?.lat ? Number(coordinates.lat) : undefined,
+        coordinates?.lon ? Number(coordinates.lon) : undefined,
+        controller.signal,
+    )
+        .then((knowledge) => {
+          if (!controller.signal.aborted) setPlaceKnowledge(knowledge.available ? knowledge : null);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          setPlaceKnowledgeError(error instanceof Error ? error.message : 'ไม่สามารถโหลดข้อมูลเสริมจาก Wikipedia ได้');
+          console.error('Unable to load place knowledge', error);
+        });
+    return () => controller.abort();
+  }, [attraction.title, reviewProvince, coordinates?.lat, coordinates?.lon]);
   const { review: placeReview, isLoading: isReviewLoading, error: reviewError } = usePlaceReviews(
     attraction.title,
     reviewProvince,
@@ -235,6 +435,7 @@ export default function AttractionDetail() {
       placeId: locationState?.placeId || (id?.startsWith('place-') ? id.slice('place-'.length) : undefined),
       latitude: coordinates?.lat ? Number(coordinates.lat) : undefined,
       longitude: coordinates?.lon ? Number(coordinates.lon) : undefined,
+      enabled: !ckanRoute,
     },
   );
   const mapUrl = coordinates?.lat && coordinates.lon
@@ -251,12 +452,20 @@ export default function AttractionDetail() {
     phone?: string;
     category?: string;
   }>({});
-  const displayHours = verifiedHours || attraction.hours || activeGooglePlace?.openingHours;
+  const displayHours = attraction.hours || (activeCkanPlace ? '' : activeGooglePlace?.openingHours || verifiedHours);
   const hoursByDay = displayHours ? formatOpeningHours(displayHours) : null;
-  const contactPhone = placeDetails.phone || attraction.phone || activeGooglePlace?.phone || '';
+  const contactPhone = attraction.phone || (activeCkanPlace ? '' : activeGooglePlace?.phone || placeDetails.phone) || '';
+  const contactEmail = activeCkanPlace ? activeCkanPlace.email : activeGooglePlace?.email || locationState?.email || '';
+  const websiteUrl = activeCkanPlace?.websites[0] || activeGooglePlace?.websiteUri || locationState?.website || '';
   const detailedAddress = { ...placeDetails.address };
 
   useEffect(() => {
+    if (ckanRoute) {
+      setVerifiedHours('');
+      setVerifiedLocation('');
+      setPlaceDetails({});
+      return;
+    }
     if (!coordinates?.lat || !coordinates.lon) {
       setVerifiedHours('');
       setVerifiedLocation('');
@@ -285,7 +494,7 @@ export default function AttractionDetail() {
         if (!controller.signal.aborted) console.error('Unable to load place information', error);
       });
     return () => controller.abort();
-  }, [coordinates?.lat, coordinates?.lon]);
+  }, [coordinates?.lat, coordinates?.lon, ckanRoute?.kind, ckanRoute?.id]);
 
   const [placeImages, setPlaceImages] = useState<string[]>(lockThreeImages(exactImages));
 
@@ -294,7 +503,7 @@ export default function AttractionDetail() {
   }, [id, exactImages.join('|')]);
 
   useEffect(() => {
-    if (placeImages.length || !coordinates?.lat || !coordinates.lon) return;
+    if (activeCkanPlace || ckanRoute || activeGooglePlace || placeImages.length || !coordinates?.lat || !coordinates.lon) return;
     let active = true;
     fetchPlaceImages(attraction.title, coordinates.lat, coordinates.lon).then((images) => {
       if (active) setPlaceImages(lockThreeImages(images));
@@ -302,7 +511,7 @@ export default function AttractionDetail() {
     return () => {
       active = false;
     };
-  }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length]);
+  }, [attraction.title, coordinates?.lat, coordinates?.lon, placeImages.length, activeCkanPlace, activeGooglePlace, ckanRoute?.kind, ckanRoute?.id]);
   const [airQuality, setAirQuality] = useState<{ pm25: number; aqi: number } | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const [nearbyPlacesLoading, setNearbyPlacesLoading] = useState(false);
@@ -384,10 +593,13 @@ export default function AttractionDetail() {
     .split(/[.!?。\n;；]+/)
     .map((item) => item.trim())
     .filter(Boolean);
-  const destinationHighlights = (descriptionHighlights.length > 1
-    ? descriptionHighlights
-    : attraction.description.split(/[,，]/).map((item) => item.trim()).filter(Boolean))
-    .slice(0, 4);
+  const destinationHighlights = normalizePlaceHighlights((activeCkanPlace?.highlights.length
+    ? activeCkanPlace.highlights
+    : tatPlace?.highlights?.length
+    ? tatPlace.highlights
+    : descriptionHighlights.length > 1
+      ? descriptionHighlights
+      : attraction.description.split(/[,，]/).map((item) => item.trim()).filter(Boolean)));
   const activityOptions = [
     ['ดำน้ำ', /ดำน้ำ|ดำน้ำตื้น|ดำน้ำลึก/],
     ['ล่องเรือ', /ล่องเรือ|นั่งเรือ|เดินทางทางเรือ/],
@@ -398,19 +610,36 @@ export default function AttractionDetail() {
     ['ชมสถาปัตยกรรม', /สถาปัตยกรรม|เจดีย์|โบราณสถาน/],
     ['ถ่ายภาพ', /ถ่ายภาพ|ถ่ายรูป|จุดชมวิว|ทิวทัศน์/],
   ] as const;
-  const destinationActivities = activityOptions
-    .filter(([, pattern]) => pattern.test(`${attraction.title} ${attraction.description}`))
-    .map(([activity]) => activity);
-  const estimatedCost = typeof locationState?.entranceFee === 'number'
-    ? (locationState.entranceFee === 0 ? 'ไม่มีค่าเข้า' : `${locationState.entranceFee.toLocaleString('th-TH')} บาท`)
-    : 'ไม่มีข้อมูล';
-  const recommendedTime = locationState?.recommendedTime?.trim() || 'ไม่มีข้อมูล';
+  const destinationActivities = activeCkanPlace
+    ? []
+    : activityOptions
+      .filter(([, pattern]) => pattern.test(`${attraction.title} ${attraction.description}`))
+      .map(([activity]) => activity);
+  const osmCost = activeGooglePlace?.fee || activeGooglePlace?.charge;
+  const apiCost = tatPlace?.cost?.trim() || osmCost;
+  const numericApiCost = apiCost && /^\d+(?:[.,]\d+)?$/.test(apiCost) ? Number(apiCost.replace(',', '.')) : null;
+  const estimatedCost = activeCkanPlace
+    ? activeCkanPlace.freeEntry === true
+      ? 'ไม่มีค่าเข้า'
+      : activeCkanPlace.prices.length
+        ? activeCkanPlace.prices.join(' · ')
+        : 'ไม่มีข้อมูล'
+    : apiCost
+    ? numericApiCost === null ? apiCost : numericApiCost === 0 ? 'ไม่มีค่าเข้า' : `${numericApiCost.toLocaleString('th-TH')} บาท`
+    : typeof tatPlace?.entranceFee === 'number'
+      ? tatPlace.entranceFee === 0 ? 'ไม่มีค่าเข้า' : `${tatPlace.entranceFee.toLocaleString('th-TH')} บาท`
+      : typeof locationState?.entranceFee === 'number'
+        ? locationState.entranceFee === 0 ? 'ไม่มีค่าเข้า' : `${locationState.entranceFee.toLocaleString('th-TH')} บาท`
+        : 'ไม่มีข้อมูล';
+  const recommendedTime = activeCkanPlace
+    ? 'ไม่มีข้อมูล'
+    : tatPlace?.recommendedTime?.trim() || locationState?.recommendedTime?.trim() || 'ไม่มีข้อมูล';
   const destinationProvince = getProvince(
     attraction.location || formatAddress(detailedAddress) || verifiedLocation,
-    locationState?.province || googleProvince,
+    activeCkanPlace?.province || tatPlace?.province || locationState?.province || googleProvince,
   );
-  const displayRating = locationState?.rating ?? activeGooglePlace?.rating;
-  const displayReviewCount = locationState?.reviewCount ?? activeGooglePlace?.userRatingCount;
+  const displayRating = activeCkanPlace ? undefined : tatPlace?.rating ?? locationState?.rating ?? activeGooglePlace?.rating;
+  const displayReviewCount = activeCkanPlace ? undefined : tatPlace?.reviewCount ?? locationState?.reviewCount ?? activeGooglePlace?.userRatingCount;
   const highlightIcons = isSea
     ? [Waves, Ship, Camera]
     : isWaterRelatedNature
@@ -420,7 +649,15 @@ export default function AttractionDetail() {
         : isNature
           ? [Leaf, Sunrise, Camera]
           : [Sparkles, MapPin, Camera];
-  const travelCaution = locationState?.travelCaution?.trim() || attraction.travelCaution || 'ไม่มีข้อมูล';
+  const travelCaution = activeCkanPlace
+    ? 'ไม่มีข้อมูล'
+    : tatPlace?.travelCaution?.trim() || attraction.travelCaution || 'ไม่มีข้อมูล';
+  const hasTravelCaution = Boolean(travelCaution.trim() && travelCaution !== 'ไม่มีข้อมูล');
+  const createdAtValue = activeCkanPlace?.createdAt || tatPlace?.createdAt;
+  const createdAtDate = createdAtValue ? new Date(createdAtValue) : null;
+  const createdAtLabel = createdAtDate && Number.isFinite(createdAtDate.getTime())
+    ? createdAtDate.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
   const [marine, setMarine] = useState<{ wind: number | null; wave: number } | null>(null);
 
   useEffect(() => {
@@ -715,6 +952,15 @@ export default function AttractionDetail() {
                   กำลังโหลดพยากรณ์ตามพิกัดสถานที่…
                 </p>
               )}
+              {activeGooglePlace?.sourceUrl && (
+                <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700">
+                  <p>รายละเอียดจาก OpenStreetMap (ข้อมูลชุมชน ไม่ใช่ข้อมูลกระทรวงฯ)</p>
+                  {activeGooglePlace.operator && <p className="mt-1">ผู้ดูแล: {activeGooglePlace.operator}</p>}
+                  <a href={activeGooglePlace.sourceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-blue-700 underline">
+                    ดูระเบียน OSM ต้นทาง
+                  </a>
+                </div>
+              )}
               {!tripForecastLoading && tripForecastError && (
                 <p role="alert" className={`mt-4 rounded-xl bg-white/80 p-3 text-sm ${tripRiskStyle.text}`}>{tripForecastError}</p>
               )}
@@ -778,9 +1024,9 @@ export default function AttractionDetail() {
         </div>
 
         <main className="app-content mx-auto max-w-[1440px]">
-          {googlePlaceError && !locationState?.title && (
+          {googlePlaceError && (
             <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {googlePlaceError}
+              โหลดรายละเอียดจากแหล่งข้อมูลสถานที่ไม่สำเร็จ · {googlePlaceError}
             </p>
           )}
           <section
@@ -800,7 +1046,7 @@ export default function AttractionDetail() {
                 <div className="mb-4 flex flex-wrap gap-2">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100/95 px-3 py-1.5 text-xs font-semibold text-[#1F2E7A]">
                   {isSea ? <Waves className="h-3.5 w-3.5" /> : <Compass className="h-3.5 w-3.5" />}
-                  {locationState?.category || placeDetails.category || 'สถานที่ท่องเที่ยว'}
+                  {tatPlace?.type || locationState?.category || placeDetails.category || 'สถานที่ท่องเที่ยว'}
                   </span>
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/95 px-3 py-1.5 text-xs font-semibold text-emerald-800">
                   <MapPin className="h-3.5 w-3.5" />
@@ -808,7 +1054,7 @@ export default function AttractionDetail() {
                   </span>
                 </div>
                 <h2 className="text-3xl font-black leading-tight sm:text-5xl">{attraction.title}</h2>
-                {attraction.description && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/90 sm:text-base">{attraction.description}</p>}
+                {attraction.description && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/90 sm:text-base">{getShortPlaceDescription(attraction.description)}</p>}
                 <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-medium">
                   {typeof displayRating === 'number' ? (
                   <span className="inline-flex items-center gap-1.5">
@@ -871,13 +1117,37 @@ export default function AttractionDetail() {
                   <Landmark className="h-5 w-5" />
                   เกี่ยวกับสถานที่
                 </h3>
+                {ckanPlaceLoading && <p role="status" className="mb-2 text-xs text-blue-700">กำลังโหลดข้อมูลจาก CKAN…</p>}
+                {ckanPlaceError && <p role="alert" className="mb-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">โหลดข้อมูลจาก CKAN ไม่สำเร็จ · {ckanPlaceError}</p>}
+                {tatPlaceLoading && !ckanRoute && <p role="status" className="mb-2 text-xs text-blue-700">กำลังโหลดข้อมูลสถานที่จาก TAT API…</p>}
+                {tatPlaceError && !ckanRoute && <p role="alert" className="mb-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">โหลดข้อมูลจาก TAT API ไม่สำเร็จ · {tatPlaceError}</p>}
+                {placeKnowledgeError && !attraction.description && <p role="alert" className="mb-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">โหลดข้อมูลเสริมจาก Wikipedia ไม่สำเร็จ · {placeKnowledgeError}</p>}
+                {!ckanRoute && !tatPlaceLoading && !tatPlaceError && !tatPlace && !id?.startsWith('place-') && (
+                  <p role="status" className="mb-2 text-xs text-slate-500">ไม่พบข้อมูลสถานที่นี้ใน TAT API จะแสดงข้อมูลสำรองที่มีอยู่</p>
+                )}
                 <p className="text-sm leading-7 text-slate-700">
-                  {attraction.description || 'ไม่มีข้อมูลแนะนำสถานที่จากแหล่งข้อมูล'}
+                  {attraction.description || 'แหล่งข้อมูลที่เชื่อมต่อยังไม่มีคำอธิบายสถานที่นี้'}
                 </p>
                 <p className="mt-3 flex items-start gap-2 text-sm text-slate-600">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-                  {locationState?.location || verifiedLocation || attraction.location || formatAddress(detailedAddress) || 'ไม่มีข้อมูลที่อยู่'}
+                  {attraction.location || verifiedLocation || formatAddress(detailedAddress) || 'ไม่มีข้อมูลที่อยู่'}
                 </p>
+                {activeCkanPlace && (
+                  <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50 p-3 text-xs leading-relaxed text-sky-900">
+                    <p>แหล่งข้อมูล: CKAN กระทรวงการท่องเที่ยวและกีฬา · Resource เป็น snapshot บางส่วน</p>
+                    <p className="mt-1">รหัสข้อมูล: {activeCkanPlace.id}</p>
+                    {activeCkanPlace.resourceUrl && (
+                      <a href={activeCkanPlace.resourceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block underline">
+                        เปิด JSON Resource ต้นทาง
+                      </a>
+                    )}
+                    {activeCkanPlace.url && (
+                      <a href={activeCkanPlace.url} target="_blank" rel="noreferrer" className="ml-3 inline-block underline">
+                        เปิดหน้าแหล่งข้อมูลสถานที่
+                      </a>
+                    )}
+                  </div>
+                )}
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -902,6 +1172,22 @@ export default function AttractionDetail() {
                 ) : (
                   <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{coordinates?.lat ? 'ไม่พบรูปภาพจากแหล่งข้อมูล' : 'ไม่มีข้อมูลรูปภาพหรือพิกัดสำหรับค้นหารูป'}</p>
                 )}
+                {placeKnowledge?.articleUrl && (
+                  <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                    ที่มาคำอธิบาย: Wikipedia ·{' '}
+                    <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noreferrer" className="underline">CC BY-SA 4.0</a>
+                    {' '}· <a href={placeKnowledge.articleUrl} target="_blank" rel="noreferrer" className="underline">บทความต้นทาง</a>
+                  </p>
+                )}
+                {placeKnowledge?.image && placeImages.includes(placeKnowledge.image.url) && (
+                  <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                    เครดิตภาพ: {placeKnowledge.image.attribution} ·{' '}
+                    <a href={placeKnowledge.image.licenseUrl} target="_blank" rel="noreferrer" className="underline">{placeKnowledge.image.license}</a>
+                    {placeKnowledge.image.sourceUrl && (
+                      <> · <a href={placeKnowledge.image.sourceUrl} target="_blank" rel="noreferrer" className="underline">รายละเอียดภาพต้นทาง</a></>
+                    )}
+                  </p>
+                )}
               </section>
 
               <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/70 to-white p-4 shadow-sm sm:p-5">
@@ -910,15 +1196,20 @@ export default function AttractionDetail() {
                   จุดเด่นของสถานที่
                 </h3>
                 {destinationHighlights.length ? (
-                  <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <ul className={`grid items-stretch gap-3 ${destinationHighlights.length === 1 ? 'grid-cols-1' : 'sm:grid-cols-2 xl:grid-cols-4'}`}>
                   {destinationHighlights.map((highlight, index) => {
                     const HighlightIcon = highlightIcons[index % highlightIcons.length];
                     return (
-                      <li key={highlight} className="flex min-h-24 items-start gap-3 rounded-xl bg-white/90 p-3 ring-1 ring-blue-50">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700">
-                              <HighlightIcon className="h-5 w-5" />
+                      <li
+                        key={highlight}
+                        className={`flex h-full min-w-0 items-start gap-3 rounded-xl bg-white/90 p-3 ring-1 ring-blue-50 ${destinationHighlights.length === 1 ? 'max-w-3xl' : ''}`}
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700">
+                          <HighlightIcon className="h-4 w-4" />
                         </span>
-                        <span className="text-xs font-medium leading-relaxed text-slate-700 sm:text-sm">{highlight}</span>
+                        <p className="min-w-0 flex-1 whitespace-pre-line break-words text-sm font-medium leading-6 text-slate-700">
+                          {highlight}
+                        </p>
                       </li>
                     );
                   })}
@@ -1057,31 +1348,58 @@ export default function AttractionDetail() {
                     <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
                     <div>
                       <p className="text-xs text-slate-500">ที่อยู่</p>
-                      <p className="mt-1 text-sm leading-relaxed text-slate-800">{locationState?.location || verifiedLocation || attraction.location || formatAddress(detailedAddress) || 'ไม่มีข้อมูล'}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-slate-800">{attraction.location || verifiedLocation || formatAddress(detailedAddress) || 'ไม่มีข้อมูล'}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3 py-3">
                     <Compass className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
                     <div>
                       <p className="text-xs text-slate-500">ประเภท / จังหวัด</p>
-                      <p className="mt-1 text-sm font-medium text-slate-800">{locationState?.category || placeDetails.category || 'ไม่มีข้อมูล'} · {destinationProvince}</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800">{tatPlace?.type || locationState?.category || placeDetails.category || 'ไม่มีข้อมูล'} · {destinationProvince}</p>
                     </div>
                   </div>
+                  {(activeCkanPlace || tatPlace?.id !== undefined || createdAtLabel) && (
+                    <div className="grid grid-cols-2 gap-3 py-3">
+                      {activeCkanPlace && (
+                        <div>
+                          <p className="text-xs text-slate-500">รหัสข้อมูล</p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">{activeCkanPlace.id}</p>
+                        </div>
+                      )}
+                      {tatPlace?.id !== undefined && (
+                        <div>
+                          <p className="text-xs text-slate-500">รหัสสถานที่</p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">{tatPlace.id}</p>
+                        </div>
+                      )}
+                      {createdAtLabel && (
+                        <div>
+                          <p className="text-xs text-slate-500">วันที่ข้อมูล</p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">{createdAtLabel}</p>
+                        </div>
+                      )}
+                      {activeCkanPlace?.updatedAt && (
+                        <div>
+                          <p className="text-xs text-slate-500">ปรับปรุงล่าสุดตามข้อมูล</p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">{new Date(activeCkanPlace.updatedAt).toLocaleDateString('th-TH')}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-start gap-3 py-3">
                     <Clock className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
                     <div className="w-full">
                       <p className="text-xs text-slate-500">เวลาเปิด-ปิด</p>
                       {hoursByDay ? (
                         <dl className="mt-2 space-y-1.5 text-sm">
-                          {Object.entries(hoursByDay).map(([day, hours]) => (
+                          {hoursByDay.map(({ day, schedule }) => (
                             <div key={day} className="flex justify-between gap-3">
                               <dt className="text-slate-600">{day}</dt>
-                              <dd className="text-right font-medium text-slate-800">{hours}</dd>
+                              <dd className="text-right font-medium text-slate-800">{schedule}</dd>
                             </div>
                           ))}
                         </dl>
                       ) : <p className="mt-1 text-sm text-slate-800">{displayHours || 'ไม่มีข้อมูล'}</p>}
-                      {hoursByDay && <p className="mt-2 text-xs text-slate-500">ข้อมูลจากแหล่งที่มา: {displayHours}</p>}
                     </div>
                   </div>
                   <div className="flex items-start gap-3 py-3">
@@ -1093,6 +1411,33 @@ export default function AttractionDetail() {
                       ) : <p className="mt-1 text-sm text-slate-800">ไม่มีข้อมูล</p>}
                     </div>
                   </div>
+                  {contactEmail && (
+                    <div className="flex items-start gap-3 py-3">
+                      <Compass className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                      <div>
+                        <p className="text-xs text-slate-500">อีเมลติดต่อ</p>
+                        <a href={`mailto:${contactEmail}`} className="mt-1 inline-block break-all text-sm font-semibold text-blue-700 underline-offset-2 hover:underline">
+                          {contactEmail}
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                  {activeCkanPlace?.isOpen !== null && activeCkanPlace?.isOpen !== undefined && (
+                    <div className="py-3">
+                      <p className="text-xs text-slate-500">สถานะเปิด</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800">{activeCkanPlace.isOpen ? 'เปิด' : 'ปิด'}</p>
+                    </div>
+                  )}
+                  {(activeCkanPlace?.websites.length || websiteUrl || locationState?.websites?.length) ? (
+                    <div className="py-3">
+                      <p className="text-xs text-slate-500">เว็บไซต์</p>
+                      {[...new Set([websiteUrl, ...(activeCkanPlace?.websites || locationState?.websites || [])].filter(Boolean))].map((website) => (
+                        <a key={website} href={website} target="_blank" rel="noreferrer" className="mt-1 block break-all text-sm font-semibold text-blue-700 underline-offset-2 hover:underline">
+                          {website}
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="grid grid-cols-2 gap-3 py-3">
                     <div>
                       <p className="flex items-center gap-1.5 text-xs text-slate-500"><Sunrise className="h-4 w-4 text-blue-600" />ช่วงเวลาที่แนะนำ</p>
@@ -1104,12 +1449,6 @@ export default function AttractionDetail() {
                     </div>
                   </div>
                 </div>
-                {fullMapUrl && (
-                  <a href={fullMapUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1F2E7A] px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-900">
-                    <Navigation className="h-4 w-4" />
-                    เปิด Google Maps
-                  </a>
-                )}
               </section>
 
               {isSea && (
@@ -1132,13 +1471,25 @@ export default function AttractionDetail() {
                 </section>
               )}
 
+              {(hasTravelCaution || tatPlace?.suitableFor?.length) && (
               <section className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm sm:p-5">
                 <h3 className="mb-2 flex items-center gap-2 text-base font-bold text-amber-900">
                   <AlertTriangle className="h-5 w-5 text-amber-600" />
                   ข้อควรรู้
                 </h3>
-                <p className="text-sm leading-relaxed text-amber-950">{travelCaution}</p>
+                {hasTravelCaution && <p className="text-sm leading-relaxed text-amber-950">{travelCaution}</p>}
+                {tatPlace?.suitableFor?.length ? (
+                  <div className="mt-3 border-t border-amber-200 pt-3">
+                    <p className="mb-2 text-xs font-semibold text-amber-900">เหมาะสำหรับ</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tatPlace.suitableFor.map((item) => (
+                        <span key={item} className="rounded-full bg-white/80 px-2.5 py-1 text-xs text-amber-900">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </section>
+              )}
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                 <div className="mb-3 flex items-center justify-between gap-2">

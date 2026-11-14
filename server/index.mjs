@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handlePlacesApi } from './places-api.mjs';
+import { handleTatApi } from './tat-api.mjs';
+import { handleCkanApi } from './ckan-api.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
@@ -30,6 +32,14 @@ const contentTypes = {
 };
 
 const server = createServer(async (request, response) => {
+  if (request.url?.startsWith('/api/ckan/')) {
+    await handleCkanApi(request, response, process.env);
+    return;
+  }
+  if (request.url?.startsWith('/api/tat/attraction')) {
+    await handleTatApi(request, response, process.env.TAT_API_KEY);
+    return;
+  }
   if (request.url?.startsWith('/api/places/')) {
     await handlePlacesApi(request, response, process.env.GOOGLE_PLACES_API_KEY);
     return;

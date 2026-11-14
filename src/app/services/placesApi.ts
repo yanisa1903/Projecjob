@@ -78,7 +78,27 @@ export interface PlaceDetails extends PlaceSearchResult {
   websiteUri?: string;
   googleMapsUri?: string;
   phone?: string;
+  email?: string;
   openingHours?: string;
+  operator?: string;
+  fee?: string;
+  charge?: string;
+  sourceUrl?: string;
+}
+
+export interface PlaceKnowledge {
+  available: boolean;
+  language?: string;
+  title?: string;
+  description?: string;
+  articleUrl?: string;
+  image?: {
+    url: string;
+    attribution: string;
+    license: string;
+    licenseUrl: string;
+    sourceUrl?: string;
+  };
 }
 
 export interface PlaceAutocompleteResult {
@@ -349,6 +369,40 @@ export async function getPlaceDetails(
     return response.json() as Promise<PlaceDetails>;
   }
   return request<PlaceDetails>('/api/places/details', { placeId, sessionToken }, signal);
+}
+
+export async function getPlaceDetailsBatch(
+  placeIds: string[],
+  signal?: AbortSignal,
+): Promise<Record<string, PlaceDetails>> {
+  const osmIds = [...new Set(placeIds.filter((placeId) => /^osm:[NRW]:\d+$/.test(placeId)))];
+  if (osmIds.length === 0) return {};
+  if (osmIds.length > 50) throw new Error('ค้นหารายละเอียด OpenStreetMap ได้ไม่เกิน 50 สถานที่ต่อครั้ง');
+
+  const params = new URLSearchParams({ ids: osmIds.join(',') });
+  const response = await fetch(`/api/places/osm-details?${params}`, { signal });
+  if (!response.ok) throw new Error(`โหลดรายละเอียดสถานที่ไม่สำเร็จ (${response.status})`);
+  const payload = await response.json() as { places: PlaceDetails[] };
+  return Object.fromEntries(payload.places.map((place) => [place.id, place]));
+}
+
+export async function getPlaceKnowledge(
+  name: string,
+  province?: string,
+  latitude?: number,
+  longitude?: number,
+  signal?: AbortSignal,
+): Promise<PlaceKnowledge> {
+  const params = new URLSearchParams({ name });
+  if (province) params.set('province', province);
+  if (latitude !== undefined) params.set('lat', String(latitude));
+  if (longitude !== undefined) params.set('lon', String(longitude));
+  const response = await fetch(`/api/places/knowledge?${params}`, { signal });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new PlacesApiError(payload?.error || `โหลดข้อมูลเสริมไม่สำเร็จ (${response.status})`, response.status);
+  }
+  return response.json() as Promise<PlaceKnowledge>;
 }
 
 export function getPlacePhotoUrl(photoName?: string): string | undefined {
